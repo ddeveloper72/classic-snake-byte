@@ -47,11 +47,13 @@ LEVEL_SPEED_STEP = 0.94
 MIN_LEVEL_SPEED_RATIO = 0.6
 
 # Learning note:
-#     The original tracked an "APPLES LEFT" counter. Clearing it does not by
-#     itself advance the level: it unlocks a door in the top wall that the
-#     player must then steer the snake through. Progress is therefore a skill
-#     test rather than an automatic reward for eating.
-APPLES_PER_LEVEL = 4
+#     Fifteen apples let each maze develop rather than ending after only a few
+#     turns. More apples share the board as a level progresses, while the total
+#     remains fixed and visible in the APPLES counter.
+APPLES_PER_LEVEL = 15
+APPLES_PER_SPAWN_STEP = 3
+MAX_VISIBLE_APPLES = 5
+MAZE_COUNT = 10
 
 # Points awarded for one apple, kept here so the score and the apple counter
 # can never drift apart.
@@ -68,6 +70,18 @@ def clamp_plums(plums: int) -> int:
     """Return a plum count forced into the supported 0-2 range."""
 
     return max(MIN_PLUMS, min(MAX_PLUMS, plums))
+
+
+def growth_for_apple(apple_number: int) -> int:
+    """Return the body cells awarded by an apple numbered 1 through 15."""
+
+    if apple_number <= 3:
+        return 1
+    if apple_number <= 7:
+        return 2
+    if apple_number <= 11:
+        return 3
+    return 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +143,7 @@ def spawn_corridor(board: GameBoard) -> frozenset[Position]:
     drop a wall onto the snake or directly in front of it.
     """
 
-    center_y = board.height // 2
+    center_y = board.height - 2
     first_segment_x = board.width // 2 - 2
     return frozenset(Position(x, center_y) for x in range(first_segment_x, board.width))
 
@@ -149,56 +163,72 @@ def door_column(board: GameBoard, level: int) -> int:
 
 
 def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
-    """Return the maze walls for a level.
+    """Return one of ten intentional maze lessons.
 
-    Learning note:
-        The 1981 original introduced a new wall layout on every level. These
-        layouts grow the same way, but every wall carries a doorway. Those
-        doorways are deliberate coaching: the player practises threading a gap
-        to reach an apple long before the same skill is needed to thread the
-        exit door in the top wall.
+    The catalogue repeats after level 10, allowing an endless game without
+    inventing progressively less readable walls. Level 8 is a two-door
+    training room: it teaches entering, turning inside, and leaving a chamber
+    before level 10 removes the second escape route.
     """
 
-    if level <= 1:
-        return frozenset()
-
+    pattern = (max(1, level) - 1) % MAZE_COUNT + 1
     cells: set[Position] = set()
+    center_x = board.width // 2
     center_y = board.height // 2
-    left = 4
-    right = board.width - 5
-    top = center_y - 4
-    bottom = center_y + 4
 
-    # Level 2 lays down the pair of horizontal rails, each with its own gap so
-    # the enclosed band is really a room with two doors rather than a barrier.
-    top_door_x = left + 4
-    bottom_door_x = right - 4
-    for x in range(left, right + 1):
-        if x != top_door_x:
-            cells.add(Position(x, top))
-        if x != bottom_door_x:
-            cells.add(Position(x, bottom))
+    def horizontal(y: int, start: int, stop: int, gaps: set[int] | None = None) -> None:
+        cells.update(
+            Position(x, y) for x in range(start, stop + 1) if x not in (gaps or set())
+        )
 
-    # Level 3 closes the left edge, turning the rails into a room, and leaves a
-    # side door so the room never becomes a dead end.
-    if level >= 3:
-        side_door_y = top + 2
-        for y in range(top, bottom + 1):
-            if y != side_door_y:
-                cells.add(Position(left, y))
+    def vertical(x: int, start: int, stop: int, gaps: set[int] | None = None) -> None:
+        cells.update(
+            Position(x, y) for y in range(start, stop + 1) if y not in (gaps or set())
+        )
 
-    # Level 4 adds the centre crossbar that forms the recognisable "E",
-    # splitting the room in two and giving each half its own doorway.
-    if level >= 4:
-        crossbar_door_x = left + 3
-        for x in range(left, board.width // 2 + 1):
-            if x != crossbar_door_x:
-                cells.add(Position(x, center_y))
-
-    # Level 5 and above guard the right-hand approach without sealing it.
-    if level >= 5:
-        for y in (*range(top, top + 3), *range(bottom - 2, bottom + 1)):
-            cells.add(Position(right, y))
+    if pattern == 1:
+        horizontal(center_y, 5, board.width - 6)
+    elif pattern == 2:
+        horizontal(center_y, 3, board.width - 4, {center_x, center_x + 1})
+    elif pattern == 3:
+        for x in (5, center_x, board.width - 6):
+            vertical(x, 3, board.height - 5)
+    elif pattern == 4:
+        vertical(6, 3, board.height - 5)
+        for y in (3, center_y, board.height - 5):
+            horizontal(y, 6, board.width - 7)
+    elif pattern == 5:
+        horizontal(center_y, 5, board.width - 6)
+        vertical(center_x, 2, board.height - 5)
+    elif pattern == 6:
+        for x in (4, center_x, board.width - 5):
+            vertical(x, 3, board.height - 5)
+        horizontal(center_y, 4, center_x)
+        horizontal(center_y, center_x, board.width - 5)
+    elif pattern == 7:
+        horizontal(center_y, 0, center_x - 3)
+        horizontal(center_y, center_x + 3, board.width - 1)
+        vertical(center_x, 2, board.height - 5)
+    elif pattern == 8:
+        # The "practice room" has a bottom entrance, a side escape, and a
+        # baffle that makes the player turn after crossing the threshold.
+        left, right, top, bottom = 6, board.width - 7, 3, board.height - 5
+        horizontal(top, left, right)
+        horizontal(bottom, left, right, {center_x, center_x + 1})
+        vertical(left, top, bottom)
+        vertical(right, top, bottom, {center_y - 1, center_y})
+        vertical(center_x - 2, top + 3, bottom - 2)
+    elif pattern == 9:
+        for x in (board.width // 3, board.width * 2 // 3):
+            vertical(x, 1, board.height - 3, set(range(2, board.height - 3, 2)))
+    else:
+        # A single-door room: enter through the bottom, turn inside it, then
+        # return through the same opening.
+        left, right, top, bottom = 7, board.width - 8, 3, board.height - 5
+        horizontal(top, left, right)
+        horizontal(bottom, left, right, {center_x})
+        vertical(left, top, bottom)
+        vertical(right, top, bottom)
 
     return frozenset(cells) - spawn_corridor(board)
 
@@ -273,12 +303,15 @@ class GameState:
 
     board: GameBoard
     snake: Snake
-    food: Position | None
+    foods: list[Position]
     score: int = 0
     level: int = 1
     # Apples still to eat before the exit door unlocks. The door is the only
     # way to reach the next level, so this counter gates progress.
     apples_remaining: int = APPLES_PER_LEVEL
+    # Additional tail cells earned by an apple appear over future ticks. This
+    # avoids overlapping duplicate segments when one apple awards 2-4 cells.
+    growth_pending: int = 0
     door_open: bool = False
     door_x: int = 0
     difficulty: int = MIN_DIFFICULTY
@@ -370,21 +403,21 @@ class GameEngine:
     def _new_state(self) -> GameState:
         """Build the standard three-segment starting state."""
 
-        center = Position(self._board.width // 2, self._board.height // 2)
+        center = Position(self._board.width // 2, self._board.height - 2)
         snake = Snake(
             [center, Position(center.x - 1, center.y), Position(center.x - 2, center.y)]
         )
         state = GameState(
             self._board,
             snake,
-            center,
+            [],
             level=1,
             door_x=door_column(self._board, 1),
             difficulty=self._difficulty,
             obstacles=build_obstacles(self._board, 1),
             demo_mode=False,
         )
-        state.food = self._spawn_food(state)
+        self._replenish_foods(state)
         state.plums = self._spawn_plums(state, self._plums)
         return state
 
@@ -392,9 +425,7 @@ class GameEngine:
         """Place plums on free cells well clear of the snake's starting lane."""
 
         corridor = spawn_corridor(state.board)
-        taken = {*state.snake.body}
-        if state.food is not None:
-            taken.add(state.food)
+        taken = {*state.snake.body, *state.foods}
         plums: list[Plum] = []
         for _ in range(clamp_plums(count)):
             available = [
@@ -424,8 +455,10 @@ class GameEngine:
         layout = build_obstacles(self.state.board, self.state.level)
         # A level can change mid-game, so never place a wall on the snake.
         self.state.obstacles = layout - set(self.state.snake.body)
-        if self.state.food in self.state.obstacles:
-            self.state.food = self._spawn_food(self.state)
+        self.state.foods = [
+            food for food in self.state.foods if food not in self.state.obstacles
+        ]
+        self._replenish_foods(self.state)
         # A plum caught inside a brand-new wall would be stuck there forever,
         # so any trapped plum is re-released onto open ground.
         if any(plum.position in self.state.obstacles for plum in self.state.plums):
@@ -440,14 +473,15 @@ class GameEngine:
     def set_demo_level(self, level: int) -> GameState:
         """Prepare a fresh board and score for a demo session at a chosen level."""
 
-        target_level = max(1, min(level, 8))
+        target_level = max(1, min(level, MAZE_COUNT))
         self.state = self._new_state()
         self.state.score = (target_level - 1) * APPLES_PER_LEVEL * POINTS_PER_APPLE
         self.state.level = target_level
         self.state.door_x = door_column(self._board, target_level)
         self.state.demo_mode = True
         self._apply_level_layout()
-        self.state.food = self._spawn_food(self.state)
+        self.state.foods.clear()
+        self._replenish_foods(self.state)
         # Demos re-place plums after the level walls exist so an attract-mode
         # run shows the same hazards a player would face at that level.
         self.state.plums = self._spawn_plums(self.state, self._plums)
@@ -505,10 +539,12 @@ class GameEngine:
             self._advance_level()
             return self.state
 
-        eats_food = next_head == self.state.food
+        eats_food = next_head in self.state.foods
         # On a normal move the tail vacates its cell, so moving into it is safe.
         body_to_check = (
-            self.state.snake.body if eats_food else self.state.snake.body[:-1]
+            self.state.snake.body
+            if eats_food or self.state.growth_pending > 0
+            else self.state.snake.body[:-1]
         )
         if (
             not self.state.board.contains(next_head)
@@ -525,14 +561,19 @@ class GameEngine:
 
         self.state.snake.body.insert(0, next_head)
         if eats_food:
+            self.state.foods.remove(next_head)
             self.state.score += POINTS_PER_APPLE
             self.state.apples_remaining = max(0, self.state.apples_remaining - 1)
+            apple_number = APPLES_PER_LEVEL - self.state.apples_remaining
+            self.state.growth_pending += growth_for_apple(apple_number) - 1
             if self.state.apples_remaining == 0:
                 # The board is cleared: stop replacing apples and open the door.
                 self.state.door_open = True
-                self.state.food = None
+                self.state.foods.clear()
             else:
-                self.state.food = self._spawn_food(self.state)
+                self._replenish_foods(self.state)
+        elif self.state.growth_pending > 0:
+            self.state.growth_pending -= 1
         else:
             self.state.snake.body.pop()
         self._move_plums()
@@ -558,7 +599,8 @@ class GameEngine:
         self.state.door_x = door_column(self._board, next_level)
         self.state.level_cleared = True
         self._apply_level_layout()
-        self.state.food = self._spawn_food(self.state)
+        self.state.foods.clear()
+        self._replenish_foods(self.state)
         self.state.plums = self._spawn_plums(self.state, self._plums)
 
     def _move_plums(self) -> None:
@@ -570,11 +612,13 @@ class GameEngine:
         head = self.state.snake.head
         # The body deflects a plum but the head does not, which is what makes
         # the snake's own tail a usable shield. Treat the apple as solid too:
-        # the original interaction is undocumented, and bouncing keeps food
+        # the original interaction is undocumented, and bouncing keeps apples
         # safe to approach instead of turning it into an invisible trap.
-        blockers = set(self.state.snake.body[1:]) | self.state.obstacles
-        if self.state.food is not None:
-            blockers.add(self.state.food)
+        blockers = (
+            set(self.state.snake.body[1:])
+            | self.state.obstacles
+            | set(self.state.foods)
+        )
 
         def blocked(position: Position) -> bool:
             return not self.state.board.contains(position) or position in blockers
@@ -611,8 +655,25 @@ class GameEngine:
             return Plum(plum.position, deflected.dx, deflected.dy)
         return deflected
 
-    def _spawn_food(self, state: GameState) -> Position:
-        """Choose an unoccupied cell, or the head when the board is full."""
+    def _visible_apple_target(self, state: GameState) -> int:
+        """Return how many apples should share the board at this point."""
+
+        eaten = APPLES_PER_LEVEL - state.apples_remaining
+        target = min(MAX_VISIBLE_APPLES, 1 + eaten // APPLES_PER_SPAWN_STEP)
+        return min(state.apples_remaining, target)
+
+    def _replenish_foods(self, state: GameState) -> None:
+        """Spawn apples until the level's progressive visible target is met."""
+
+        target = self._visible_apple_target(state)
+        while len(state.foods) < target:
+            food = self._spawn_food(state)
+            if food is None:
+                break
+            state.foods.append(food)
+
+    def _spawn_food(self, state: GameState) -> Position | None:
+        """Choose an unoccupied cell, or return ``None`` when the board is full."""
 
         # Constructing valid cells first guarantees food never appears inside
         # the snake, buried in a wall, or underneath a bouncing plum.
@@ -624,7 +685,8 @@ class GameEngine:
             if Position(x, y) not in state.snake.body
             and Position(x, y) not in state.obstacles
             and Position(x, y) not in occupied_by_plum
+            and Position(x, y) not in state.foods
         ]
         if not available:
-            return state.snake.head
+            return None
         return self._random.choice(available)

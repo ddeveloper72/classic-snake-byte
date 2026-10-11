@@ -54,10 +54,14 @@ def test_start_rejects_an_out_of_range_difficulty(client: TestClient) -> None:
     assert response.status_code == 422
 
 
-def test_first_level_state_reports_no_obstacles(client: TestClient) -> None:
+def test_first_level_state_reports_bar_and_initial_apple(client: TestClient) -> None:
     response = client.post("/game/start", json={"difficulty": 1})
+    state = response.json()
 
-    assert response.json()["obstacles"] == []
+    assert len(state["obstacles"]) > 1
+    assert len({cell[1] for cell in state["obstacles"]}) == 1
+    assert len(state["foods"]) == 1
+    assert "food" not in state
 
 
 def test_websocket_returns_authoritative_state(client: TestClient) -> None:

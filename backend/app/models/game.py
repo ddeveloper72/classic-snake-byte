@@ -57,7 +57,7 @@ class GameStateResponse(BaseModel):
     width: int
     height: int
     snake: list[tuple[int, int]]
-    food: tuple[int, int] | None
+    foods: list[tuple[int, int]]
     obstacles: list[tuple[int, int]]
     plums: list[tuple[int, int]]
     plum_bounced: bool
@@ -84,7 +84,7 @@ class GameStateResponse(BaseModel):
             width=state.board.width,
             height=state.board.height,
             snake=[(part.x, part.y) for part in state.snake.body],
-            food=None if state.food is None else (state.food.x, state.food.y),
+            foods=[(food.x, food.y) for food in state.foods],
             # Sorted so repeated snapshots of one layout are byte-identical.
             obstacles=sorted((cell.x, cell.y) for cell in state.obstacles),
             # Plum order is preserved rather than sorted so a client can keep

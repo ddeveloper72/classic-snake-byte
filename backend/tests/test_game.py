@@ -11,6 +11,7 @@ from backend.app.domain.game import (
     APPLES_PER_LEVEL,
     MAX_DIFFICULTY,
     MAX_PLUMS,
+    MAZE_COUNT,
     MIN_DIFFICULTY,
     SECONDS_PER_CELL,
     Direction,
@@ -20,6 +21,7 @@ from backend.app.domain.game import (
     Position,
     build_obstacles,
     door_column,
+    growth_for_apple,
     spawn_corridor,
 )
 from backend.app.services.game_loop import GameLoopService
@@ -55,13 +57,65 @@ def test_opposite_turn_is_ignored() -> None:
 def test_eating_food_increases_score_and_length() -> None:
     engine = GameEngine(seed=1)
     head = engine.state.snake.head
-    engine.state.food = Position(head.x + 1, head.y)
+    engine.state.foods = [Position(head.x + 1, head.y)]
 
     engine.tick()
 
     assert engine.state.score == 10
     assert engine.state.level == 1
     assert len(engine.state.snake.body) == 4
+
+
+def test_apple_growth_accelerates_gently_across_the_level() -> None:
+    assert [growth_for_apple(number) for number in range(1, 16)] == [
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+        4,
+    ]
+
+
+def test_extra_growth_arrives_without_overlapping_tail_segments() -> None:
+    engine = GameEngine(seed=1)
+    engine.state.apples_remaining = 12
+    engine.state.foods = [engine.state.snake.next_head()]
+    before = len(engine.state.snake.body)
+
+    engine.tick()
+
+    assert len(engine.state.snake.body) == before + 1
+    assert engine.state.growth_pending == 1
+    assert len(set(engine.state.snake.body)) == len(engine.state.snake.body)
+
+    engine.tick()
+
+    assert len(engine.state.snake.body) == before + 2
+    assert engine.state.growth_pending == 0
+    assert len(set(engine.state.snake.body)) == len(engine.state.snake.body)
+
+
+def test_visible_apples_increase_every_three_consumed() -> None:
+    engine = GameEngine(seed=1)
+    expected_after_eating = {1: 1, 3: 2, 6: 3, 9: 4, 12: 3}
+
+    for eaten in range(1, 13):
+        engine.state.snake.body = [Position(10, engine.state.board.height - 2)]
+        engine.state.snake.direction = Direction.RIGHT
+        engine.state.foods = [engine.state.snake.next_head()]
+        engine.tick()
+        if eaten in expected_after_eating:
+            assert len(engine.state.foods) == expected_after_eating[eaten]
 
 
 def test_level_does_not_rise_from_score_alone() -> None:
@@ -106,26 +160,28 @@ def test_gentle_difficulty_never_outruns_its_floor() -> None:
     assert engine.tick_interval == floor
 
 
-def test_first_level_has_no_obstacles() -> None:
+def test_first_level_starts_with_a_horizontal_bar() -> None:
     engine = GameEngine(seed=1)
 
-    assert engine.state.obstacles == frozenset()
+    assert len(engine.state.obstacles) > 1
+    assert {cell.y for cell in engine.state.obstacles} == {
+        engine.state.board.height // 2
+    }
 
 
-def test_later_levels_add_more_obstacles() -> None:
+def test_ten_maze_patterns_repeat_for_an_endless_game() -> None:
     board = GameBoard()
 
-    counts = [len(build_obstacles(board, level)) for level in range(1, 6)]
-
-    assert counts[0] == 0
-    assert counts == sorted(counts)
-    assert counts[4] > counts[1]
+    for level in range(1, MAZE_COUNT + 1):
+        assert build_obstacles(board, level) == build_obstacles(
+            board, level + MAZE_COUNT
+        )
 
 
 def test_obstacles_never_block_the_starting_snake() -> None:
     board = GameBoard()
 
-    for level in range(1, 9):
+    for level in range(1, MAZE_COUNT + 1):
         engine = GameEngine(seed=level)
         engine.state.score = (level - 1) * 40
         engine.state.level = level
@@ -133,7 +189,7 @@ def test_obstacles_never_block_the_starting_snake() -> None:
 
         occupied = set(engine.state.snake.body)
         assert engine.state.obstacles.isdisjoint(occupied)
-        assert engine.state.food not in engine.state.obstacles
+        assert all(food not in engine.state.obstacles for food in engine.state.foods)
         assert build_obstacles(board, level).isdisjoint(occupied)
 
 
@@ -155,6 +211,7 @@ def test_food_never_spawns_inside_a_wall() -> None:
 
     for _ in range(80):
         food = engine._spawn_food(engine.state)
+        assert food is not None
         assert food not in engine.state.obstacles
 
 
@@ -163,7 +220,7 @@ def test_every_open_cell_stays_reachable_on_all_levels() -> None:
 
     board = GameBoard()
 
-    for level in range(1, 9):
+    for level in range(1, MAZE_COUNT + 1):
         obstacles = build_obstacles(board, level)
         open_cells = {
             Position(x, y)
@@ -172,7 +229,7 @@ def test_every_open_cell_stays_reachable_on_all_levels() -> None:
             if Position(x, y) not in obstacles
         }
 
-        start = Position(board.width // 2, board.height // 2)
+        start = Position(board.width // 2, board.height - 2)
         reached = {start}
         queue = [start]
         while queue:
@@ -194,7 +251,7 @@ def test_demo_level_sets_autoplay_state() -> None:
 
     assert state.demo_mode is True
     assert state.level == 4
-    assert state.score == 120
+    assert state.score == 450
 
 
 def test_plum_count_is_clamped_to_the_original_range() -> None:
@@ -214,16 +271,17 @@ def test_plums_never_start_in_the_snakes_lane() -> None:
             assert plum.position not in corridor
             assert plum.position not in state.obstacles
             assert plum.position not in state.snake.body
-            assert plum.position != state.food
+            assert plum.position not in state.foods
 
 
 def test_plum_travels_diagonally_across_open_ground() -> None:
     engine = GameEngine(seed=1)
-    engine.state.plums = [Plum(Position(5, 5), 1, 1)]
+    engine.state.foods.clear()
+    engine.state.plums = [Plum(Position(5, 2), 1, 1)]
 
     engine.tick()
 
-    assert engine.state.plums[0].position == Position(6, 6)
+    assert engine.state.plums[0].position == Position(6, 3)
     assert engine.state.plum_bounced is False
 
 
@@ -231,12 +289,13 @@ def test_plum_rebounds_off_the_board_edge() -> None:
     engine = GameEngine(board=GameBoard(width=8, height=8), seed=1)
     # Travelling down-right from the bottom row, so only the vertical axis
     # is obstructed and the horizontal heading must survive the bounce.
-    engine.state.plums = [Plum(Position(3, 7), 1, 1)]
+    engine.state.foods.clear()
+    engine.state.plums = [Plum(Position(0, 7), 1, 1)]
 
-    engine.tick()
+    engine._move_plums()
 
     plum = engine.state.plums[0]
-    assert plum.position == Position(4, 6)
+    assert plum.position == Position(1, 6)
     assert (plum.dx, plum.dy) == (1, -1)
     assert engine.state.plum_bounced is True
 
@@ -244,7 +303,8 @@ def test_plum_rebounds_off_the_board_edge() -> None:
 def test_plum_rebounds_off_an_apple_without_moving_it() -> None:
     engine = GameEngine(seed=1)
     apple = Position(6, 6)
-    engine.state.food = apple
+    engine.state.obstacles = frozenset()
+    engine.state.foods = [apple]
     engine.state.plums = [Plum(Position(5, 5), 1, 1)]
 
     engine._move_plums()
@@ -253,7 +313,7 @@ def test_plum_rebounds_off_an_apple_without_moving_it() -> None:
     assert plum.position == Position(4, 4)
     assert (plum.dx, plum.dy) == (-1, -1)
     assert plum.position != apple
-    assert engine.state.food == apple
+    assert engine.state.foods == [apple]
     assert engine.state.plum_bounced is True
 
 
@@ -325,6 +385,7 @@ def test_food_never_spawns_under_a_plum() -> None:
 
     for _ in range(50):
         food = engine._spawn_food(engine.state)
+        assert food is not None
         assert all(food != plum.position for plum in engine.state.plums)
 
 
@@ -333,7 +394,7 @@ def test_game_loop_can_launch_demo_mode() -> None:
         service = GameLoopService()
         state = await service.start_demo_game()
         assert state.demo_mode is True
-        assert 1 <= state.level <= 5
+        assert 1 <= state.level <= MAZE_COUNT
 
     asyncio.run(run_test())
 
@@ -352,8 +413,8 @@ def test_game_loop_automatically_starts_demo_after_idle_timeout() -> None:
             assert service.started is True
             assert service.demo_mode is True
             assert service.state.demo_mode is True
-            assert service.state.level == 4
-            assert service.state.score == 120
+            assert service.state.level == 7
+            assert service.state.score == 900
         finally:
             service.unsubscribe(signals)
             await service.stop_loop()
@@ -413,7 +474,9 @@ def _eat_until_door_opens(engine: GameEngine) -> None:
     """Teleport food onto the head's next cell until the apple quota clears."""
 
     while engine.state.apples_remaining > 0:
-        engine.state.food = engine.state.snake.next_head()
+        engine.state.snake.body = [Position(10, engine.state.board.height - 2)]
+        engine.state.snake.direction = Direction.RIGHT
+        engine.state.foods = [engine.state.snake.next_head()]
         engine.tick()
 
 
@@ -423,12 +486,12 @@ def test_door_stays_shut_until_the_apple_quota_is_cleared() -> None:
     assert engine.state.apples_remaining == APPLES_PER_LEVEL
     assert engine.state.door_open is False
 
-    engine.state.food = engine.state.snake.next_head()
+    engine.state.foods = [engine.state.snake.next_head()]
     engine.tick()
 
     assert engine.state.apples_remaining == APPLES_PER_LEVEL - 1
     assert engine.state.door_open is False
-    assert engine.state.food is not None
+    assert engine.state.foods
 
 
 def test_clearing_the_quota_opens_the_door_and_stops_the_apples() -> None:
@@ -437,7 +500,7 @@ def test_clearing_the_quota_opens_the_door_and_stops_the_apples() -> None:
     _eat_until_door_opens(engine)
 
     assert engine.state.door_open is True
-    assert engine.state.food is None
+    assert engine.state.foods == []
     assert engine.state.level == 1
 
 
@@ -456,7 +519,7 @@ def test_leaving_through_the_open_door_advances_the_level() -> None:
     assert engine.state.score == score_before
     assert engine.state.door_open is False
     assert engine.state.apples_remaining == APPLES_PER_LEVEL
-    assert engine.state.food is not None
+    assert engine.state.foods
 
 
 def test_the_top_wall_still_kills_away_from_the_door() -> None:
@@ -487,43 +550,106 @@ def test_a_shut_door_is_not_an_exit() -> None:
 
 def test_the_door_moves_between_levels() -> None:
     board = GameBoard()
-    columns = {door_column(board, level) for level in range(1, 9)}
+    columns = {door_column(board, level) for level in range(1, MAZE_COUNT + 1)}
 
     assert len(columns) > 1
-    for level in range(1, 9):
+    for level in range(1, MAZE_COUNT + 1):
         assert 0 <= door_column(board, level) < board.width
 
 
 def test_the_door_is_never_buried_in_a_wall() -> None:
     board = GameBoard()
-    for level in range(1, 9):
+    for level in range(1, MAZE_COUNT + 1):
         walls = build_obstacles(board, level)
         assert Position(door_column(board, level), 0) not in walls
 
 
-def test_every_maze_wall_has_a_doorway() -> None:
-    """Each level's walls must be rooms to walk into, not sealed barriers."""
-
+def test_level_two_bar_has_a_two_cell_gap() -> None:
     board = GameBoard()
+    walls = build_obstacles(board, 2)
+    y = board.height // 2
+
+    assert Position(board.width // 2, y) not in walls
+    assert Position(board.width // 2 + 1, y) not in walls
+    assert Position(board.width // 2 - 1, y) in walls
+    assert Position(board.width // 2 + 2, y) in walls
+
+
+def test_level_three_has_three_vertical_bars() -> None:
+    walls = build_obstacles(GameBoard(), 3)
+
+    assert len({cell.x for cell in walls}) == 3
+    assert len({cell.y for cell in walls}) > 3
+
+
+def test_middle_levels_have_the_requested_silhouettes() -> None:
+    board = GameBoard()
+    center_x = board.width // 2
     center_y = board.height // 2
-    left = 4
-    right = board.width - 5
-    top = center_y - 4
-    bottom = center_y + 4
 
-    for level in range(2, 9):
-        walls = build_obstacles(board, level)
-        top_rail = [x for x in range(left, right + 1) if Position(x, top) in walls]
-        bottom_rail = [
-            x for x in range(left, right + 1) if Position(x, bottom) in walls
-        ]
+    e_walls = build_obstacles(board, 4)
+    assert Position(6, 3) in e_walls
+    assert Position(board.width - 7, 3) in e_walls
+    assert Position(board.width - 7, center_y) in e_walls
 
-        assert len(top_rail) < right - left + 1
-        assert len(bottom_rail) < right - left + 1
+    plus_walls = build_obstacles(board, 5)
+    assert Position(center_x, 2) in plus_walls
+    assert Position(5, center_y) in plus_walls
+    assert Position(board.width - 6, center_y) in plus_walls
 
-        if level >= 3:
-            side = [y for y in range(top, bottom + 1) if Position(left, y) in walls]
-            assert len(side) < bottom - top + 1
+    joined_h_walls = build_obstacles(board, 6)
+    assert {cell.x for cell in joined_h_walls if cell.y == 3} == {
+        4,
+        center_x,
+        board.width - 5,
+    }
+    assert all(
+        Position(x, center_y) in joined_h_walls
+        for x in range(4, board.width - 4)
+    )
+
+    side_bar_walls = build_obstacles(board, 7)
+    assert Position(0, center_y) in side_bar_walls
+    assert Position(board.width - 1, center_y) in side_bar_walls
+    assert Position(center_x, 2) in side_bar_walls
+
+
+def test_level_nine_has_two_dotted_vertical_walls() -> None:
+    board = GameBoard()
+    walls = build_obstacles(board, 9)
+
+    assert {cell.x for cell in walls} == {
+        board.width // 3,
+        board.width * 2 // 3,
+    }
+    for x in {cell.x for cell in walls}:
+        occupied_y = sorted(cell.y for cell in walls if cell.x == x)
+        assert all(
+            right - left == 2
+            for left, right in zip(occupied_y, occupied_y[1:], strict=False)
+        )
+
+
+def test_level_eight_teaches_rooms_with_a_second_exit() -> None:
+    board = GameBoard()
+    walls = build_obstacles(board, 8)
+    right = board.width - 7
+    center_y = board.height // 2
+
+    assert Position(right, center_y - 1) not in walls
+    assert Position(right, center_y) not in walls
+
+
+def test_level_ten_room_has_one_two_way_door() -> None:
+    board = GameBoard()
+    walls = build_obstacles(board, 10)
+    bottom = board.height - 5
+    left, right = 7, board.width - 8
+
+    openings = [
+        x for x in range(left, right + 1) if Position(x, bottom) not in walls
+    ]
+    assert openings == [board.width // 2]
 
 
 def test_advancing_a_level_resets_the_snake_to_a_safe_length() -> None:

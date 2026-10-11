@@ -16,7 +16,7 @@ interface GameState {
   width: number
   height: number
   snake: [number, number][]
-  food: [number, number] | null
+  foods: [number, number][]
   apples_remaining: number
   door_open: boolean
   door_x: number
@@ -151,7 +151,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         </div>
         <div class="score-box">
           <span>APPLES</span>
-          <strong id="apples">4</strong>
+          <strong id="apples">15</strong>
         </div>
       </div>
     </header>
@@ -357,7 +357,8 @@ function isGameState(value: unknown): value is GameState {
     Array.isArray(candidate.snake) &&
     candidate.snake.length > 0 &&
     candidate.snake.every(isCoordinate) &&
-    (candidate.food === null || isCoordinate(candidate.food)) &&
+    Array.isArray(candidate.foods) &&
+    candidate.foods.every(isCoordinate) &&
     typeof candidate.apples_remaining === 'number' &&
     typeof candidate.door_open === 'boolean' &&
     typeof candidate.door_x === 'number' &&
@@ -469,9 +470,7 @@ function render(game: GameState): void {
 
   drawTopWall(game, cellWidth, cellHeight)
 
-  if (game.food !== null) {
-    drawApple(game.food, cellWidth, cellHeight)
-  }
+  game.foods.forEach((food) => drawApple(food, cellWidth, cellHeight))
   drawSnake(game, cellWidth, cellHeight)
   // Plums are drawn last so a plum crossing the snake stays visible.
   game.plums.forEach((plum) => {

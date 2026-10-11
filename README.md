@@ -8,8 +8,8 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Player-selectable snake speed, levels 1 to 5, for accessible play
 - Selectable arrow-key, WASD, or either-scheme steering
 - Zero to two bouncing perilous plums as a second difficulty dial
-- Apple quota per level with an exit door that must be steered through
-- Level mazes that grow from an open board to Apple IIe style walls
+- Fifteen-apple levels with accelerating snake growth and progressive spawning
+- Ten handcrafted level mazes followed by a repeating obstacle cycle
 - Web Audio sound cues modelled on the original single-speaker beeps
 - Idle demo autoplay at randomized difficulty levels
 - TypeScript, Vite, and Canvas browser client
@@ -72,21 +72,42 @@ dangerous to approach.
 
 ## Apples, the exit door, and level mazes
 
-Each level holds a quota of apples (`APPLES_PER_LEVEL`). Eating the last one
-does **not** advance the level. Instead it stops the apples, opens a door in the
-top wall, and the player must steer the snake out through that gap. The door
-column moves from level to level, and leaving the board anywhere else is still
-fatal.
+Each level holds 15 apples (`APPLES_PER_LEVEL`). The board begins with one
+visible apple, then adds another concurrent apple after every third one eaten,
+up to five visible apples or however many remain. Eating the last apple does
+**not** advance the level. Instead it clears the apples, opens a door in the top
+wall, and the player must steer the snake out through that gap. The door column
+moves from level to level, and leaving the board anywhere else is still fatal.
 
-Level 1 is a clean board. From level 2 onwards the engine adds walls that
-rebuild the "E" shape of the original game. Every wall carries a doorway, which
-is deliberate coaching: threading a gap to reach an apple teaches the same skill
-the exit door later demands. Three rules keep the mazes fair, and all are
-covered by tests:
+Growth also accelerates without becoming explosive. Apples 1-3 add one body
+cell each; apples 4-7 add two; apples 8-11 add three; and apples 12-15 add four.
+Extra cells grow over the following movement ticks rather than appearing as
+overlapping tail pieces, so collision rules remain predictable.
+
+The ten-maze obstacle course is:
+
+1. A horizontal bar that teaches circling an obstacle.
+2. A horizontal bar with a two-cell passage.
+3. Three vertical bars.
+4. An `E` shape.
+5. A central `+`.
+6. Two joined `H` shapes whose touching ends share one upright.
+7. Side-wall bars and a floating central vertical bar (`- | -`).
+8. The surprise **practice room**: a chamber with a wide entrance, a side exit,
+   and an internal baffle. It teaches entering and turning inside a room while
+   still offering a second escape route.
+9. Two evenly spaced dotted vertical walls, alternating wall and passage cells.
+10. A rectangular room with one door, requiring the snake to enter and leave
+    through the same opening.
+
+After level 10 the maze catalogue repeats while the displayed level and speed
+progression continue. Four rules keep the mazes fair, and all are covered by
+tests:
 
 - A corridor in front of the spawning snake is always left open.
 - Every open cell stays reachable, so food can never appear in a sealed pocket.
-- Every wall has at least one doorway, so no layout is a sealed barrier.
+- Every apple avoids walls, the snake, other apples, and plums.
+- The level-10 room has a tested entrance and can never become a sealed pocket.
 
 Walls are fatal on contact, food never spawns inside one, and a wall added by a
 level change can never materialise on top of the snake. Clearing a level returns

@@ -15,6 +15,7 @@ from random import Random
 from backend.app.domain.game import (
     MAX_DIFFICULTY,
     MAX_PLUMS,
+    MAZE_COUNT,
     MIN_PLUMS,
     Direction,
     GameEngine,
@@ -219,7 +220,7 @@ class GameLoopService:
     def _start_demo_locked(self) -> GameState:
         """Start a random difficulty demo run while no human session is active."""
 
-        target_level = self._random.randint(1, 5)
+        target_level = self._random.randint(1, MAZE_COUNT)
         self._engine.set_difficulty(self._random.randint(2, MAX_DIFFICULTY))
         # Attract mode advertises the perilous plums too, so a passer-by sees
         # the hazard that makes the higher settings worth trying.
@@ -242,8 +243,11 @@ class GameLoopService:
         head = self.state.snake.head
         # With the apples cleared the only worthwhile target is the exit door,
         # so attract mode demonstrates the level-clearing run too.
-        if self.state.food is not None:
-            target = self.state.food
+        if self.state.foods:
+            target = min(
+                self.state.foods,
+                key=lambda food: abs(food.x - head.x) + abs(food.y - head.y),
+            )
         else:
             target = Position(self.state.door_x, 0)
 
