@@ -1,4 +1,12 @@
-"""HTTP and WebSocket adapters for independently owned browser game sessions."""
+"""HTTP and WebSocket adapters for independently owned browser game sessions.
+
+Learning note:
+    Routes are transport adapters, not the game engine. Each request resolves
+    its ``GameSession`` from the HttpOnly cookie, then delegates to that
+    session's game or persistence service. The credential is never accepted
+    from request data, and the shared leaderboard is the only cross-session
+    game-facing endpoint.
+"""
 
 import asyncio
 from contextlib import suppress
