@@ -5,12 +5,47 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Python 3.15 and FastAPI backend
 - Framework-independent, typed game engine
 - Autonomous server game loop and authoritative WebSocket broadcasts
+- Player-selectable snake speed, levels 1 to 5, for accessible play
+- Level mazes that grow from an open board to Apple IIe style walls
+- Web Audio sound cues modelled on the original single-speaker beeps
 - Idle demo autoplay at randomized difficulty levels
 - TypeScript, Vite, and Canvas browser client
 - Keyboard and touch-friendly controls
 - SQLite game, player, and score persistence
 - Pytest and Ruff development tooling
 - Architecture and learning notes in `docs/`
+
+## Choosing a speed
+
+Snakebite is meant to stay playable at any reaction speed, so the pace is an
+explicit setting rather than a hidden constant. Pick a level before starting a
+new game:
+
+| Level | Name | Seconds per cell |
+| --- | --- | --- |
+| 1 | STROLL | 0.40 |
+| 2 | EASY | 0.32 |
+| 3 | STEADY | 0.25 |
+| 4 | BRISK | 0.19 |
+| 5 | SNAKEBITE | 0.13 |
+
+Each in-game level speeds the snake by 6 percent, but the pace never drops
+below 60 percent of the chosen starting interval. A player on STROLL therefore
+stays at or above 0.24 seconds per cell no matter how long the run lasts.
+
+The selection, and the sound on/off choice, persist in `localStorage`.
+
+## Level mazes
+
+Level 1 is a clean board. From level 2 onwards the engine adds walls that
+rebuild the "E" shape of the original game. Two rules keep the mazes fair, and
+both are covered by tests:
+
+- A corridor in front of the spawning snake is always left open.
+- Every open cell stays reachable, so food can never appear in a sealed pocket.
+
+Walls are fatal on contact, food never spawns inside one, and a wall added by a
+level change can never materialise on top of the snake.
 
 ## Run locally
 

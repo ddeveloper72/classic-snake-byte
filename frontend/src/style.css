@@ -187,6 +187,105 @@ canvas {
   display: flex;
   justify-content: center;
   gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.player-name {
+  border: 1px dashed transparent;
+  background: none;
+  padding: 0 0.2rem;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.player-name:hover,
+.player-name:focus-visible {
+  border-color: #70ff8e;
+  color: #fff;
+}
+
+.difficulty {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0;
+  padding: 0.8rem 1rem 0.9rem;
+  border: 1px solid #255f34;
+  background: rgba(4, 20, 10, 0.72);
+}
+
+.difficulty legend {
+  padding: 0 0.5rem;
+  color: #5caf70;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.difficulty-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.difficulty-option {
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0.3rem;
+  min-height: 44px;
+  border: 1px solid #2a813e;
+  background: #07170c;
+  cursor: pointer;
+}
+
+.difficulty-option:hover {
+  border-color: #70ff8e;
+  background: #0d2a16;
+}
+
+/* The native radio stays in the accessibility tree but the label is the
+   visible control, so keyboard focus must still be obvious. */
+.difficulty-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.difficulty-option:has(input:focus-visible) {
+  outline: 2px solid #70ff8e;
+  outline-offset: 2px;
+}
+
+.difficulty-option:has(input:checked) {
+  border-color: #93ffa9;
+  background: #10381c;
+}
+
+.difficulty-number {
+  color: #ffb000;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.difficulty-option:has(input:checked) .difficulty-number {
+  color: #fff;
+}
+
+.difficulty-label {
+  color: #8cd69c;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+}
+
+.difficulty-hint {
+  margin: 0.6rem 0 0;
+  min-height: 1.2rem;
+  color: #5caf70;
+  font-size: 0.8rem;
+  text-align: center;
 }
 
 .direction-pad {

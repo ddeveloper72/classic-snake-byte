@@ -7,6 +7,7 @@
  * player intentions, then renders only state broadcast by the server.
  */
 import './style.css'
+import { SoundBoard } from './audio.ts'
 
 type Direction = 'up' | 'right' | 'down' | 'left'
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
@@ -16,9 +17,11 @@ interface GameState {
   height: number
   snake: [number, number][]
   food: [number, number]
+  obstacles: [number, number][]
   direction: Direction
   score: number
   level: number
+  difficulty: number
   started: boolean
   paused: boolean
   game_over: boolean
@@ -28,6 +31,26 @@ interface GameState {
 const CANVAS_WIDTH = 720
 const CANVAS_HEIGHT = 480
 const DIRECTIONS: readonly Direction[] = ['up', 'right', 'down', 'left']
+
+/**
+ * Pace options, slowest first.
+ *
+ * Learning note:
+ * The original game only ever sped up, which locks out players whose reaction
+ * time or hand-eye coordination has changed. Offering the pace as an explicit
+ * choice keeps the arcade feel available without making it the only option.
+ */
+const DIFFICULTIES: readonly { value: number; label: string; hint: string }[] = [
+  { value: 1, label: 'STROLL', hint: 'Gentlest pace — plenty of thinking time' },
+  { value: 2, label: 'EASY', hint: 'Relaxed pace with room to recover' },
+  { value: 3, label: 'STEADY', hint: 'A balanced, classic arcade pace' },
+  { value: 4, label: 'BRISK', hint: 'Quick reactions needed' },
+  { value: 5, label: 'SNAKEBITE', hint: 'Full 1981 arcade speed' },
+]
+
+const DEFAULT_DIFFICULTY = 1
+const DIFFICULTY_STORAGE_KEY = 'snakebite.difficulty'
+const SOUND_STORAGE_KEY = 'snakebite.sound'
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <main class="shell">
@@ -39,7 +62,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="score-panel" aria-live="polite">
         <div class="score-box">
           <span>PLAYER</span>
-          <strong id="player-name">PLAYER</strong>
+          <button type="button" id="player-name" class="player-name" title="Click to rename">PLAYER</button>
         </div>
         <div class="score-box">
           <span>SCORE</span>
@@ -66,9 +89,30 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </section>
 
     <section class="controls" aria-label="Game controls">
+      <fieldset class="difficulty">
+        <legend>Snake speed</legend>
+        <div class="difficulty-options" role="radiogroup" aria-label="Snake speed">
+          ${DIFFICULTIES.map(
+            (option) => `
+            <label class="difficulty-option">
+              <input
+                type="radio"
+                name="difficulty"
+                value="${option.value}"
+                title="${option.hint}"
+              />
+              <span class="difficulty-number">${option.value}</span>
+              <span class="difficulty-label">${option.label}</span>
+            </label>`,
+          ).join('')}
+        </div>
+        <p id="difficulty-hint" class="difficulty-hint" aria-live="polite"></p>
+      </fieldset>
+
       <div class="button-row">
         <button id="start" class="primary" type="button">NEW GAME</button>
         <button id="pause" type="button" disabled>PAUSE</button>
+        <button id="sound" type="button" aria-pressed="true">SOUND: ON</button>
       </div>
       <div class="direction-pad" aria-label="Direction controls">
         <button type="button" data-direction="up" aria-label="Move up">▲</button>
@@ -95,17 +139,25 @@ if (context === null) {
 
 const score = requireElement<HTMLElement>('#score')
 const level = requireElement<HTMLElement>('#level')
-const playerName = requireElement<HTMLElement>('#player-name')
+const playerName = requireElement<HTMLButtonElement>('#player-name')
 const overlay = requireElement<HTMLElement>('#overlay')
 const overlayTitle = requireElement<HTMLElement>('#overlay-title')
 const overlayMessage = requireElement<HTMLElement>('#overlay-message')
 const connection = requireElement<HTMLElement>('#connection')
 const startButton = requireElement<HTMLButtonElement>('#start')
 const pauseButton = requireElement<HTMLButtonElement>('#pause')
+const soundButton = requireElement<HTMLButtonElement>('#sound')
+const difficultyHint = requireElement<HTMLElement>('#difficulty-hint')
+
+const sounds = new SoundBoard()
 
 let socket: WebSocket | null = null
 let state: GameState | null = null
 let reconnectTimer: number | null = null
+/** Previous snapshot values, used to detect the moments worth sounding. */
+let lastScore = 0
+let lastLevel = 1
+let lastGameOver = false
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -179,11 +231,15 @@ function isGameState(value: unknown): value is GameState {
     candidate.snake.length > 0 &&
     candidate.snake.every(isCoordinate) &&
     isCoordinate(candidate.food) &&
+    Array.isArray(candidate.obstacles) &&
+    candidate.obstacles.every(isCoordinate) &&
     DIRECTIONS.includes(candidate.direction as Direction) &&
     Number.isInteger(candidate.score) &&
     Number(candidate.score) >= 0 &&
     Number.isInteger(candidate.level) &&
     Number(candidate.level) >= 1 &&
+    Number.isInteger(candidate.difficulty) &&
+    Number(candidate.difficulty) >= 1 &&
     typeof candidate.started === 'boolean' &&
     typeof candidate.paused === 'boolean' &&
     typeof candidate.game_over === 'boolean' &&
@@ -209,7 +265,14 @@ function send(message: object): void {
 }
 
 async function postGameAction(action: 'start' | 'pause' | 'resume'): Promise<void> {
-  const response = await fetch(`/game/${action}`, { method: 'POST' })
+  const response = await fetch(`/game/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:
+      action === 'start'
+        ? JSON.stringify({ difficulty: getDifficulty() })
+        : undefined,
+  })
   if (!response.ok) {
     throw new Error(`Game server rejected ${action}: HTTP ${response.status}`)
   }
@@ -226,21 +289,45 @@ function turn(direction: Direction): void {
   if (state === null || !state.started || state.paused || state.game_over) {
     return
   }
+  if (direction !== state.direction) {
+    sounds.turn()
+  }
   send({ direction })
+}
+
+/** Play the cues implied by the difference between two server snapshots. */
+function announce(game: GameState): void {
+  if (game.score > lastScore) {
+    sounds.eat()
+  }
+  if (game.level > lastLevel) {
+    sounds.levelUp()
+  }
+  if (game.game_over && !lastGameOver) {
+    sounds.gameOver()
+  }
+
+  lastScore = game.score
+  lastLevel = game.level
+  lastGameOver = game.game_over
 }
 
 function render(game: GameState): void {
   const cellWidth = canvas.width / game.width
   const cellHeight = canvas.height / game.height
 
+  announce(game)
+
   context.fillStyle = '#06140c'
   context.fillRect(0, 0, canvas.width, canvas.height)
   drawGrid(cellWidth, cellHeight)
-  drawCell(game.food, cellWidth, cellHeight, '#ffb000', 0.22)
 
-  game.snake.forEach((part, index) => {
-    drawCell(part, cellWidth, cellHeight, index === 0 ? '#e8ffe8' : '#46f36b', 0.12)
+  game.obstacles.forEach((wall) => {
+    drawWall(wall, cellWidth, cellHeight)
   })
+
+  drawApple(game.food, cellWidth, cellHeight)
+  drawSnake(game, cellWidth, cellHeight)
 
   score.textContent = game.score.toString().padStart(6, '0')
   level.textContent = game.level.toString()
@@ -249,16 +336,145 @@ function render(game: GameState): void {
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
   if (game.demo_mode) {
-    showOverlay('DEMO MODE', `Autoplaying at level ${game.level}`)
+    showOverlay('DEMO MODE', `Autoplaying at level ${game.level} — press New Game`)
   } else if (!game.started) {
-    showOverlay('READY?', 'Press New Game to begin')
+    showOverlay('READY?', 'Choose a snake speed, then press New Game')
   } else if (game.game_over) {
-    showOverlay('GAME OVER', 'Press New Game to try again')
+    showOverlay('GAME OVER', `Scored ${game.score} — press New Game to retry`)
   } else if (game.paused) {
     showOverlay('PAUSED', 'Press Space or Resume to continue')
   } else {
     hideOverlay()
   }
+}
+
+/**
+ * Draw a maze wall.
+ *
+ * Learning note:
+ * The Apple IIe drew its level walls as plain white blocks, which read clearly
+ * against the dark board. A highlight edge is added so walls stay legible for
+ * players who find the flat original hard to pick out.
+ */
+function drawWall(
+  [x, y]: [number, number],
+  width: number,
+  height: number,
+): void {
+  context.fillStyle = '#f4f8ff'
+  context.fillRect(x * width, y * height, width, height)
+  context.fillStyle = 'rgba(120, 170, 255, 0.45)'
+  context.fillRect(x * width, y * height, width, Math.max(1, height * 0.2))
+}
+
+/** Draw the food as a round apple with a stem, as the original did. */
+function drawApple(
+  [x, y]: [number, number],
+  width: number,
+  height: number,
+): void {
+  const centerX = x * width + width / 2
+  const centerY = y * height + height / 2
+  const radius = Math.min(width, height) * 0.34
+
+  context.fillStyle = '#ff4d4d'
+  context.beginPath()
+  context.arc(centerX, centerY + radius * 0.12, radius, 0, Math.PI * 2)
+  context.fill()
+
+  context.strokeStyle = '#7a4a1d'
+  context.lineWidth = Math.max(1, radius * 0.22)
+  context.beginPath()
+  context.moveTo(centerX, centerY - radius * 0.55)
+  context.lineTo(centerX + radius * 0.3, centerY - radius * 1.1)
+  context.stroke()
+
+  context.fillStyle = 'rgba(255, 255, 255, 0.75)'
+  context.beginPath()
+  context.arc(
+    centerX - radius * 0.3,
+    centerY - radius * 0.1,
+    radius * 0.2,
+    0,
+    Math.PI * 2,
+  )
+  context.fill()
+}
+
+/** Draw the snake body, giving the head a visible facing direction. */
+function drawSnake(game: GameState, width: number, height: number): void {
+  game.snake.forEach((part, index) => {
+    if (index === 0) {
+      return
+    }
+    // Segments fade slightly toward the tail so the shape reads at a glance.
+    const fade = Math.max(0.45, 1 - index / (game.snake.length * 1.6))
+    context.fillStyle = `rgba(70, 243, 107, ${fade})`
+    const inset = Math.min(width, height) * 0.12
+    context.fillRect(
+      part[0] * width + inset,
+      part[1] * height + inset,
+      width - inset * 2,
+      height - inset * 2,
+    )
+  })
+
+  const [headX, headY] = game.snake[0]
+  const inset = Math.min(width, height) * 0.08
+  context.fillStyle = '#e8ffe8'
+  context.fillRect(
+    headX * width + inset,
+    headY * height + inset,
+    width - inset * 2,
+    height - inset * 2,
+  )
+
+  drawEyes(game.direction, headX * width, headY * height, width, height)
+}
+
+function drawEyes(
+  direction: Direction,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+): void {
+  const radius = Math.max(1, Math.min(width, height) * 0.1)
+  const near = 0.3
+  const far = 0.7
+  const ahead = 0.66
+
+  const positions: Record<Direction, [number, number][]> = {
+    up: [
+      [near, 1 - ahead],
+      [far, 1 - ahead],
+    ],
+    down: [
+      [near, ahead],
+      [far, ahead],
+    ],
+    left: [
+      [1 - ahead, near],
+      [1 - ahead, far],
+    ],
+    right: [
+      [ahead, near],
+      [ahead, far],
+    ],
+  }
+
+  context.fillStyle = '#06140c'
+  positions[direction].forEach(([offsetX, offsetY]) => {
+    context.beginPath()
+    context.arc(
+      left + width * offsetX,
+      top + height * offsetY,
+      radius,
+      0,
+      Math.PI * 2,
+    )
+    context.fill()
+  })
 }
 
 function drawGrid(cellWidth: number, cellHeight: number): void {
@@ -277,21 +493,32 @@ function drawGrid(cellWidth: number, cellHeight: number): void {
   context.stroke()
 }
 
-function drawCell(
-  [x, y]: [number, number],
-  width: number,
-  height: number,
-  color: string,
-  insetRatio: number,
-): void {
-  const inset = Math.min(width, height) * insetRatio
-  context.fillStyle = color
-  context.fillRect(
-    x * width + inset,
-    y * height + inset,
-    width - inset * 2,
-    height - inset * 2,
-  )
+function getDifficulty(): number {
+  const stored = Number(window.localStorage.getItem(DIFFICULTY_STORAGE_KEY))
+  if (DIFFICULTIES.some((option) => option.value === stored)) {
+    return stored
+  }
+  return DEFAULT_DIFFICULTY
+}
+
+function setDifficulty(value: number): void {
+  const option =
+    DIFFICULTIES.find((entry) => entry.value === value) ?? DIFFICULTIES[0]
+  window.localStorage.setItem(DIFFICULTY_STORAGE_KEY, String(option.value))
+  difficultyHint.textContent = `${option.label} — ${option.hint}`
+
+  document
+    .querySelectorAll<HTMLInputElement>('input[name="difficulty"]')
+    .forEach((input) => {
+      input.checked = Number(input.value) === option.value
+    })
+}
+
+function setSoundEnabled(enabled: boolean): void {
+  sounds.setEnabled(enabled)
+  window.localStorage.setItem(SOUND_STORAGE_KEY, enabled ? 'on' : 'off')
+  soundButton.textContent = enabled ? 'SOUND: ON' : 'SOUND: OFF'
+  soundButton.setAttribute('aria-pressed', String(enabled))
 }
 
 function getPlayerName(): string {
@@ -308,6 +535,22 @@ function setPlayerName(name: string): void {
   const nextName = name.trim() || 'PLAYER'
   window.localStorage.setItem('snakebite.player-name', nextName)
   playerName.textContent = nextName
+}
+
+// Embedded browsers and some privacy modes make window.prompt throw. Renaming
+// is a convenience, so a failure here must never abort the rest of start-up.
+function promptForPlayerName(): void {
+  let answer: string | null = null
+  try {
+    answer = window.prompt('Choose a player name', getPlayerName())
+  } catch {
+    playerName.disabled = true
+    playerName.title = 'Renaming is not supported in this browser'
+    return
+  }
+  if (answer !== null) {
+    setPlayerName(answer)
+  }
 }
 
 function showOverlay(title: string, message: string): void {
@@ -357,11 +600,31 @@ document.querySelectorAll<HTMLButtonElement>('[data-direction]').forEach((button
 })
 
 startButton.addEventListener('click', () => {
+  // Audio must be unlocked inside a real user gesture before any cue is heard.
+  sounds.unlock()
+  sounds.start()
   void postGameAction('start').catch(showClientError)
 })
 
 pauseButton.addEventListener('click', () => {
   void togglePause()
+})
+
+soundButton.addEventListener('click', () => {
+  sounds.unlock()
+  setSoundEnabled(!sounds.enabled)
+})
+
+document
+  .querySelectorAll<HTMLInputElement>('input[name="difficulty"]')
+  .forEach((input) => {
+    input.addEventListener('change', () => {
+      setDifficulty(Number(input.value))
+    })
+  })
+
+playerName.addEventListener('click', () => {
+  promptForPlayerName()
 })
 
 async function togglePause(): Promise<void> {
@@ -375,10 +638,10 @@ async function togglePause(): Promise<void> {
   }
 }
 
-const namePrompt = window.prompt('Choose a player name', getPlayerName())
-if (namePrompt !== null) {
-  setPlayerName(namePrompt)
-}
+setPlayerName(getPlayerName())
+
+setDifficulty(getDifficulty())
+setSoundEnabled(window.localStorage.getItem(SOUND_STORAGE_KEY) !== 'off')
 
 window.addEventListener('beforeunload', () => {
   if (reconnectTimer !== null) {

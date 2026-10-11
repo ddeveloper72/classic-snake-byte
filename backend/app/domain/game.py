@@ -14,9 +14,36 @@ Learning note:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from random import Random
+
+MIN_DIFFICULTY = 1
+MAX_DIFFICULTY = 5
+
+# Learning note:
+#     Difficulty is a player-chosen accessibility setting rather than a hidden
+#     constant. Setting 1 moves roughly three cells per second so players who
+#     need more reaction time can still finish a board, while setting 5 keeps
+#     the frantic pace of the 1981 original.
+SECONDS_PER_CELL: dict[int, float] = {
+    1: 0.40,
+    2: 0.32,
+    3: 0.25,
+    4: 0.19,
+    5: 0.13,
+}
+
+# Levels speed up gently and never fall below this share of the chosen pace, so
+# a slow difficulty stays playable even deep into a long game.
+LEVEL_SPEED_STEP = 0.94
+MIN_LEVEL_SPEED_RATIO = 0.6
+
+
+def clamp_difficulty(difficulty: int) -> int:
+    """Return a difficulty forced into the supported 1-5 range."""
+
+    return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, difficulty))
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +98,63 @@ class GameBoard:
         return 0 <= position.x < self.width and 0 <= position.y < self.height
 
 
+def spawn_corridor(board: GameBoard) -> frozenset[Position]:
+    """Return the lane the snake starts in and first travels along.
+
+    Keeping this lane clear guarantees a new game or a level change can never
+    drop a wall onto the snake or directly in front of it.
+    """
+
+    center_y = board.height // 2
+    first_segment_x = board.width // 2 - 2
+    return frozenset(
+        Position(x, center_y) for x in range(first_segment_x, board.width)
+    )
+
+
+def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
+    """Return the maze walls for a level.
+
+    Learning note:
+        The 1981 original introduced a new wall layout on every level. These
+        layouts grow the same way and are deliberately open on the right so the
+        board can always be completed: no layout ever encloses a region, which
+        means food is always reachable.
+    """
+
+    if level <= 1:
+        return frozenset()
+
+    cells: set[Position] = set()
+    center_y = board.height // 2
+    left = 4
+    right = board.width - 5
+    top = center_y - 4
+    bottom = center_y + 4
+
+    # Level 2 lays down the pair of horizontal rails.
+    for x in range(left, right + 1):
+        cells.add(Position(x, top))
+        cells.add(Position(x, bottom))
+
+    # Level 3 closes the left edge, turning the rails into an open "C".
+    if level >= 3:
+        for y in range(top, bottom + 1):
+            cells.add(Position(left, y))
+
+    # Level 4 adds the centre crossbar that forms the recognisable "E".
+    if level >= 4:
+        for x in range(left, board.width // 2 + 1):
+            cells.add(Position(x, center_y))
+
+    # Level 5 and above guard the right-hand approach without sealing it.
+    if level >= 5:
+        for y in (*range(top, top + 3), *range(bottom - 2, bottom + 1)):
+            cells.add(Position(right, y))
+
+    return frozenset(cells) - spawn_corridor(board)
+
+
 @dataclass(slots=True)
 class Snake:
     """The ordered snake body and its current direction of travel.
@@ -110,6 +194,8 @@ class GameState:
     food: Position
     score: int = 0
     level: int = 1
+    difficulty: int = MIN_DIFFICULTY
+    obstacles: frozenset[Position] = field(default_factory=frozenset)
     paused: bool = False
     game_over: bool = False
     demo_mode: bool = False
@@ -121,6 +207,7 @@ class GameEngine:
     Args:
         board: Optional board dimensions, useful for alternate modes and tests.
         seed: Optional random seed for reproducible food placement in tests.
+        difficulty: The player-selected pace, from 1 (gentlest) to 5 (original).
 
     The engine owns exactly one game state. Public methods return that state so
     adapters can serialize the result without duplicating game rules.
@@ -131,25 +218,39 @@ class GameEngine:
         board: GameBoard | None = None,
         seed: int | None = None,
         *,
-        base_tick_interval: float = 0.16,
+        difficulty: int = MIN_DIFFICULTY,
     ):
         self._board = board or GameBoard()
         self._random = Random(seed)
-        self._base_tick_interval = base_tick_interval
+        self._difficulty = clamp_difficulty(difficulty)
         self.state = self._new_state()
 
     @property
+    def difficulty(self) -> int:
+        """Return the player-selected pace setting."""
+
+        return self._difficulty
+
+    @property
     def level(self) -> int:
-        """Return the current game difficulty band based on score."""
+        """Return the current level, which rises every four food items."""
 
         return max(1, self.state.score // 40 + 1)
 
     @property
     def tick_interval(self) -> float:
-        """Return the active speed for this level."""
+        """Return seconds per cell for the chosen difficulty and current level."""
 
-        level = self.level
-        return max(0.08, self._base_tick_interval - (level - 1) * 0.015)
+        base = SECONDS_PER_CELL[self._difficulty]
+        ramped = base * (LEVEL_SPEED_STEP ** (self.level - 1))
+        return max(base * MIN_LEVEL_SPEED_RATIO, ramped)
+
+    def set_difficulty(self, difficulty: int) -> GameState:
+        """Change the pace setting, applying it to the current state."""
+
+        self._difficulty = clamp_difficulty(difficulty)
+        self.state.difficulty = self._difficulty
+        return self.state
 
     def _new_state(self) -> GameState:
         """Build the standard three-segment starting state."""
@@ -158,9 +259,26 @@ class GameEngine:
         snake = Snake(
             [center, Position(center.x - 1, center.y), Position(center.x - 2, center.y)]
         )
-        state = GameState(self._board, snake, center, level=1, demo_mode=False)
+        state = GameState(
+            self._board,
+            snake,
+            center,
+            level=1,
+            difficulty=self._difficulty,
+            obstacles=build_obstacles(self._board, 1),
+            demo_mode=False,
+        )
         state.food = self._spawn_food(state)
         return state
+
+    def _apply_level_layout(self) -> None:
+        """Swap in the current level's walls without burying the live snake."""
+
+        layout = build_obstacles(self.state.board, self.state.level)
+        # A level can change mid-game, so never place a wall on the snake.
+        self.state.obstacles = layout - set(self.state.snake.body)
+        if self.state.food in self.state.obstacles:
+            self.state.food = self._spawn_food(self.state)
 
     def set_demo_level(self, level: int) -> GameState:
         """Prepare a fresh board and score for a demo session at a chosen level."""
@@ -170,6 +288,7 @@ class GameEngine:
         self.state.score = (target_level - 1) * 40
         self.state.level = target_level
         self.state.demo_mode = True
+        self._apply_level_layout()
         self.state.food = self._spawn_food(self.state)
         return self.state
 
@@ -216,14 +335,21 @@ class GameEngine:
         body_to_check = (
             self.state.snake.body if eats_food else self.state.snake.body[:-1]
         )
-        if not self.state.board.contains(next_head) or next_head in body_to_check:
+        if (
+            not self.state.board.contains(next_head)
+            or next_head in body_to_check
+            or next_head in self.state.obstacles
+        ):
             self.state.game_over = True
             return self.state
 
         self.state.snake.body.insert(0, next_head)
         if eats_food:
             self.state.score += 10
+            previous_level = self.state.level
             self.state.level = self.level
+            if self.state.level != previous_level:
+                self._apply_level_layout()
             self.state.food = self._spawn_food(self.state)
         else:
             self.state.snake.body.pop()
@@ -233,12 +359,14 @@ class GameEngine:
     def _spawn_food(self, state: GameState) -> Position:
         """Choose an unoccupied cell, or the head when the board is full."""
 
-        # Constructing valid cells first guarantees food never appears in the snake.
+        # Constructing valid cells first guarantees food never appears inside
+        # the snake or buried in a wall where it could not be collected.
         available = [
             Position(x, y)
             for y in range(state.board.height)
             for x in range(state.board.width)
             if Position(x, y) not in state.snake.body
+            and Position(x, y) not in state.obstacles
         ]
         if not available:
             return state.snake.head

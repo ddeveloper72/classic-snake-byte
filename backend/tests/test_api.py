@@ -34,6 +34,32 @@ def test_start_and_input_endpoints(client: TestClient) -> None:
     assert move.json()["direction"] == "down"
 
 
+def test_start_accepts_a_player_selected_difficulty(client: TestClient) -> None:
+    response = client.post("/game/start", json={"difficulty": 5})
+
+    assert response.status_code == 200
+    assert response.json()["difficulty"] == 5
+
+
+def test_start_defaults_to_the_gentlest_difficulty(client: TestClient) -> None:
+    response = client.post("/game/start")
+
+    assert response.status_code == 200
+    assert response.json()["difficulty"] == 1
+
+
+def test_start_rejects_an_out_of_range_difficulty(client: TestClient) -> None:
+    response = client.post("/game/start", json={"difficulty": 9})
+
+    assert response.status_code == 422
+
+
+def test_first_level_state_reports_no_obstacles(client: TestClient) -> None:
+    response = client.post("/game/start", json={"difficulty": 1})
+
+    assert response.json()["obstacles"] == []
+
+
 def test_websocket_returns_authoritative_state(client: TestClient) -> None:
     client.post("/game/start")
     client.post("/game/pause")

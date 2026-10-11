@@ -6,9 +6,14 @@ Learning note:
     also validates input and generates the OpenAPI schema used by FastAPI.
 """
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from backend.app.domain.game import Direction, GameState
+from backend.app.domain.game import (
+    MAX_DIFFICULTY,
+    MIN_DIFFICULTY,
+    Direction,
+    GameState,
+)
 
 
 class ScoreResponse(BaseModel):
@@ -25,6 +30,17 @@ class InputRequest(BaseModel):
     direction: Direction
 
 
+class StartGameRequest(BaseModel):
+    """A player request to start a game at a chosen pace."""
+
+    difficulty: int = Field(
+        default=MIN_DIFFICULTY,
+        ge=MIN_DIFFICULTY,
+        le=MAX_DIFFICULTY,
+        description="1 is the gentlest pace and 5 matches the 1981 original.",
+    )
+
+
 class GameStateResponse(BaseModel):
     """The JSON-safe representation of the current game state."""
 
@@ -34,9 +50,11 @@ class GameStateResponse(BaseModel):
     height: int
     snake: list[tuple[int, int]]
     food: tuple[int, int]
+    obstacles: list[tuple[int, int]]
     direction: Direction
     score: int
     level: int
+    difficulty: int
     started: bool
     paused: bool
     game_over: bool
@@ -51,9 +69,12 @@ class GameStateResponse(BaseModel):
             height=state.board.height,
             snake=[(part.x, part.y) for part in state.snake.body],
             food=(state.food.x, state.food.y),
+            # Sorted so repeated snapshots of one layout are byte-identical.
+            obstacles=sorted((cell.x, cell.y) for cell in state.obstacles),
             direction=state.snake.direction,
             score=state.score,
             level=state.level,
+            difficulty=state.difficulty,
             started=started,
             paused=state.paused,
             game_over=state.game_over,

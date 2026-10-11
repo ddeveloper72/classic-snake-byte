@@ -13,7 +13,12 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.app.domain.game import Direction
-from backend.app.models.game import GameStateResponse, InputRequest, ScoreResponse
+from backend.app.models.game import (
+    GameStateResponse,
+    InputRequest,
+    ScoreResponse,
+    StartGameRequest,
+)
 from backend.app.services.game_loop import GameLoopService, StateSignal
 from backend.app.services.persistence import PersistenceService
 
@@ -45,11 +50,12 @@ def require_persistence() -> PersistenceService:
 
 
 @router.post("/game/start", response_model=GameStateResponse)
-async def start_game() -> GameStateResponse:
-    """Start a new game and return its initial state."""
+async def start_game(request: StartGameRequest | None = None) -> GameStateResponse:
+    """Start a new game, optionally at a player-selected difficulty."""
 
+    settings = request or StartGameRequest()
     await require_persistence().start_game()
-    await game_service.start_game()
+    await game_service.start_game(settings.difficulty)
     return state_response()
 
 

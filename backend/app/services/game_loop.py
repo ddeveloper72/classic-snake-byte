@@ -12,7 +12,13 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from random import Random
 
-from backend.app.domain.game import Direction, GameEngine, GameState, Position
+from backend.app.domain.game import (
+    MAX_DIFFICULTY,
+    Direction,
+    GameEngine,
+    GameState,
+    Position,
+)
 
 StateSignal = asyncio.Queue[None]
 
@@ -34,11 +40,12 @@ class GameLoopService:
         if idle_timeout < 0:
             raise ValueError("idle_timeout cannot be negative")
 
-        self._engine = engine or GameEngine(base_tick_interval=tick_interval)
+        self._engine = engine or GameEngine()
         self._on_game_over = on_game_over
         self._started = False
         self._last_interaction = time.monotonic()
         self._idle_timeout = idle_timeout
+        self._idle_poll_interval = min(tick_interval, 0.25)
         self._random = random_source or Random()
         self._lock = asyncio.Lock()
         self._subscribers: set[StateSignal] = set()
@@ -94,10 +101,17 @@ class GameLoopService:
         self._started = False
         self.state.demo_mode = False
 
-    async def start_game(self) -> GameState:
-        """Reset the engine and enable autonomous movement."""
+    async def start_game(self, difficulty: int | None = None) -> GameState:
+        """Reset the engine and enable autonomous movement.
+
+        Args:
+            difficulty: Optional player-selected pace from 1 to 5. Omitting it
+                keeps the pace already chosen for this service.
+        """
 
         async with self._lock:
+            if difficulty is not None:
+                self._engine.set_difficulty(difficulty)
             state = self._engine.reset()
             self._started = True
             self._record_player_interaction()
@@ -153,10 +167,15 @@ class GameLoopService:
         self._subscribers.discard(signals)
 
     async def _run(self) -> None:
-        """Advance active games while scaling the pace by the level."""
+        """Advance active games while scaling the pace by difficulty and level."""
 
         while True:
-            await asyncio.sleep(self._engine.tick_interval)
+            # An idle service polls on a short fixed timer so a slow difficulty
+            # never delays the demo; a running game paces on the engine's speed.
+            if self._started:
+                await asyncio.sleep(self._engine.tick_interval)
+            else:
+                await asyncio.sleep(self._idle_poll_interval)
             async with self._lock:
                 if not self._started:
                     if time.monotonic() - self._last_interaction >= self._idle_timeout:
@@ -191,6 +210,7 @@ class GameLoopService:
         """Start a random difficulty demo run while no human session is active."""
 
         target_level = self._random.randint(1, 5)
+        self._engine.set_difficulty(self._random.randint(2, MAX_DIFFICULTY))
         state = self._engine.set_demo_level(target_level)
         self._started = True
         self._last_interaction = time.monotonic()
@@ -220,6 +240,8 @@ class GameLoopService:
             if not self.state.board.contains(next_head):
                 continue
             if next_head in self.state.snake.body[:-1]:
+                continue
+            if next_head in self.state.obstacles:
                 continue
             candidates.append(direction)
 
