@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Browser tab icon.
+
+    Learning note:
+      The emoji is drawn as SVG text rather than shipped as a binary PNG, so the
+      icon stays a readable, editable source file and needs no build step. The
+      dark disc behind it keeps the glyph legible on both light and dark tab
+      bars, where a bare emoji tends to disappear.
+  -->
+  <circle cx="32" cy="32" r="31" fill="#08140c" stroke="#46f36b" stroke-width="2" />
+  <text
+    x="32"
+    y="33"
+    font-size="38"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif"
+  >🐍</text>
+</svg>
