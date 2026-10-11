@@ -78,6 +78,24 @@ export class SoundBoard {
     this.play([{ frequency: 180, duration: 0.025 }], PEAK_GAIN * 0.5)
   }
 
+  /**
+   * The rebound of a perilous plum.
+   *
+   * Learning note:
+   * A plum can strike from off-screen attention, so this cue is pitched well
+   * above the steering blip to warn players who are watching the snake's head
+   * rather than the whole board.
+   */
+  plumBounce(): void {
+    this.play(
+      [
+        { frequency: 660, duration: 0.03 },
+        { frequency: 440, duration: 0.04 },
+      ],
+      PEAK_GAIN * 0.7,
+    )
+  }
+
   private play(tones: Tone[], gain: number = PEAK_GAIN): void {
     if (this.muted) {
       return

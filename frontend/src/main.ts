@@ -18,6 +18,8 @@ interface GameState {
   snake: [number, number][]
   food: [number, number]
   obstacles: [number, number][]
+  plums: [number, number][]
+  plum_bounced: boolean
   direction: Direction
   score: number
   level: number
@@ -51,6 +53,23 @@ const DIFFICULTIES: readonly { value: number; label: string; hint: string }[] = 
 const DEFAULT_DIFFICULTY = 1
 const DIFFICULTY_STORAGE_KEY = 'snakebite.difficulty'
 const SOUND_STORAGE_KEY = 'snakebite.sound'
+
+/**
+ * Perilous plum options, as the original's "HOW MANY PLUMS?" prompt offered.
+ *
+ * Learning note:
+ * Plums are a difficulty dial that is independent of speed: a slow game with
+ * two plums still demands board awareness, while zero plums keeps a fast game
+ * purely about steering.
+ */
+const PLUM_OPTIONS: readonly { value: number; label: string; hint: string }[] = [
+  { value: 0, label: 'NONE', hint: 'No plums — just you, the maze and the apples' },
+  { value: 1, label: 'ONE', hint: 'A single plum bouncing around the board' },
+  { value: 2, label: 'TWO', hint: 'Two plums — the full perilous experience' },
+]
+
+const DEFAULT_PLUMS = 0
+const PLUMS_STORAGE_KEY = 'snakebite.plums'
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <main class="shell">
@@ -109,6 +128,26 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <p id="difficulty-hint" class="difficulty-hint" aria-live="polite"></p>
       </fieldset>
 
+      <fieldset class="difficulty">
+        <legend>Perilous plums</legend>
+        <div class="difficulty-options" role="radiogroup" aria-label="Perilous plums">
+          ${PLUM_OPTIONS.map(
+            (option) => `
+            <label class="difficulty-option">
+              <input
+                type="radio"
+                name="plums"
+                value="${option.value}"
+                title="${option.hint}"
+              />
+              <span class="difficulty-number">${option.value}</span>
+              <span class="difficulty-label">${option.label}</span>
+            </label>`,
+          ).join('')}
+        </div>
+        <p id="plums-hint" class="difficulty-hint" aria-live="polite"></p>
+      </fieldset>
+
       <div class="button-row">
         <button id="start" class="primary" type="button">NEW GAME</button>
         <button id="pause" type="button" disabled>PAUSE</button>
@@ -148,6 +187,7 @@ const startButton = requireElement<HTMLButtonElement>('#start')
 const pauseButton = requireElement<HTMLButtonElement>('#pause')
 const soundButton = requireElement<HTMLButtonElement>('#sound')
 const difficultyHint = requireElement<HTMLElement>('#difficulty-hint')
+const plumsHint = requireElement<HTMLElement>('#plums-hint')
 
 const sounds = new SoundBoard()
 
@@ -233,6 +273,9 @@ function isGameState(value: unknown): value is GameState {
     isCoordinate(candidate.food) &&
     Array.isArray(candidate.obstacles) &&
     candidate.obstacles.every(isCoordinate) &&
+    Array.isArray(candidate.plums) &&
+    candidate.plums.every(isCoordinate) &&
+    typeof candidate.plum_bounced === 'boolean' &&
     DIRECTIONS.includes(candidate.direction as Direction) &&
     Number.isInteger(candidate.score) &&
     Number(candidate.score) >= 0 &&
@@ -270,7 +313,7 @@ async function postGameAction(action: 'start' | 'pause' | 'resume'): Promise<voi
     headers: { 'Content-Type': 'application/json' },
     body:
       action === 'start'
-        ? JSON.stringify({ difficulty: getDifficulty() })
+        ? JSON.stringify({ difficulty: getDifficulty(), plums: getPlums() })
         : undefined,
   })
   if (!response.ok) {
@@ -306,6 +349,9 @@ function announce(game: GameState): void {
   if (game.game_over && !lastGameOver) {
     sounds.gameOver()
   }
+  if (game.plum_bounced && !game.game_over) {
+    sounds.plumBounce()
+  }
 
   lastScore = game.score
   lastLevel = game.level
@@ -328,6 +374,10 @@ function render(game: GameState): void {
 
   drawApple(game.food, cellWidth, cellHeight)
   drawSnake(game, cellWidth, cellHeight)
+  // Plums are drawn last so a plum crossing the snake stays visible.
+  game.plums.forEach((plum) => {
+    drawPlum(plum, cellWidth, cellHeight)
+  })
 
   score.textContent = game.score.toString().padStart(6, '0')
   level.textContent = game.level.toString()
@@ -395,6 +445,54 @@ function drawApple(
     centerX - radius * 0.3,
     centerY - radius * 0.1,
     radius * 0.2,
+    0,
+    Math.PI * 2,
+  )
+  context.fill()
+}
+
+/**
+ * Draw a perilous plum.
+ *
+ * Learning note:
+ * The original rendered the plum in the Apple IIe's purple, which is the only
+ * colour on the board that is neither snake green, apple red, nor wall white.
+ * Keeping that separation means a plum can never be mistaken for food.
+ */
+function drawPlum(
+  [x, y]: [number, number],
+  width: number,
+  height: number,
+): void {
+  const centerX = x * width + width / 2
+  const centerY = y * height + height / 2
+  const radius = Math.min(width, height) * 0.38
+
+  // A soft halo keeps a fast-moving plum trackable at the higher speeds.
+  context.fillStyle = 'rgba(199, 110, 255, 0.28)'
+  context.beginPath()
+  context.arc(centerX, centerY, radius * 1.45, 0, Math.PI * 2)
+  context.fill()
+
+  context.fillStyle = '#b44cff'
+  context.beginPath()
+  context.arc(centerX, centerY, radius, 0, Math.PI * 2)
+  context.fill()
+
+  // The crease down the middle is what reads as "plum" rather than "ball".
+  context.strokeStyle = 'rgba(60, 0, 95, 0.85)'
+  context.lineWidth = Math.max(1, radius * 0.16)
+  context.beginPath()
+  context.moveTo(centerX, centerY - radius * 0.85)
+  context.lineTo(centerX, centerY + radius * 0.85)
+  context.stroke()
+
+  context.fillStyle = 'rgba(255, 255, 255, 0.8)'
+  context.beginPath()
+  context.arc(
+    centerX - radius * 0.33,
+    centerY - radius * 0.33,
+    radius * 0.22,
     0,
     Math.PI * 2,
   )
@@ -514,6 +612,29 @@ function setDifficulty(value: number): void {
     })
 }
 
+/** Read the stored plum count, falling back when storage holds junk. */
+function getPlums(): number {
+  const stored = Number(window.localStorage.getItem(PLUMS_STORAGE_KEY))
+  if (PLUM_OPTIONS.some((option) => option.value === stored)) {
+    return stored
+  }
+  return DEFAULT_PLUMS
+}
+
+/** Persist the plum count and sync the radio group and hint text to it. */
+function setPlums(value: number): void {
+  const option =
+    PLUM_OPTIONS.find((entry) => entry.value === value) ?? PLUM_OPTIONS[0]
+  window.localStorage.setItem(PLUMS_STORAGE_KEY, String(option.value))
+  plumsHint.textContent = `${option.label} — ${option.hint}`
+
+  document
+    .querySelectorAll<HTMLInputElement>('input[name="plums"]')
+    .forEach((input) => {
+      input.checked = Number(input.value) === option.value
+    })
+}
+
 function setSoundEnabled(enabled: boolean): void {
   sounds.setEnabled(enabled)
   window.localStorage.setItem(SOUND_STORAGE_KEY, enabled ? 'on' : 'off')
@@ -623,6 +744,14 @@ document
     })
   })
 
+document
+  .querySelectorAll<HTMLInputElement>('input[name="plums"]')
+  .forEach((input) => {
+    input.addEventListener('change', () => {
+      setPlums(Number(input.value))
+    })
+  })
+
 playerName.addEventListener('click', () => {
   promptForPlayerName()
 })
@@ -641,6 +770,7 @@ async function togglePause(): Promise<void> {
 setPlayerName(getPlayerName())
 
 setDifficulty(getDifficulty())
+setPlums(getPlums())
 setSoundEnabled(window.localStorage.getItem(SOUND_STORAGE_KEY) !== 'off')
 
 window.addEventListener('beforeunload', () => {

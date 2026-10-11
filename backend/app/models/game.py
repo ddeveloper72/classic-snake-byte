@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.domain.game import (
     MAX_DIFFICULTY,
+    MAX_PLUMS,
     MIN_DIFFICULTY,
+    MIN_PLUMS,
     Direction,
     GameState,
 )
@@ -39,6 +41,12 @@ class StartGameRequest(BaseModel):
         le=MAX_DIFFICULTY,
         description="1 is the gentlest pace and 5 matches the 1981 original.",
     )
+    plums: int = Field(
+        default=MIN_PLUMS,
+        ge=MIN_PLUMS,
+        le=MAX_PLUMS,
+        description="Perilous plums that bounce around the board, 0 to 2.",
+    )
 
 
 class GameStateResponse(BaseModel):
@@ -51,6 +59,8 @@ class GameStateResponse(BaseModel):
     snake: list[tuple[int, int]]
     food: tuple[int, int]
     obstacles: list[tuple[int, int]]
+    plums: list[tuple[int, int]]
+    plum_bounced: bool
     direction: Direction
     score: int
     level: int
@@ -71,6 +81,10 @@ class GameStateResponse(BaseModel):
             food=(state.food.x, state.food.y),
             # Sorted so repeated snapshots of one layout are byte-identical.
             obstacles=sorted((cell.x, cell.y) for cell in state.obstacles),
+            # Plum order is preserved rather than sorted so a client can keep
+            # animating the same plum between frames.
+            plums=[(plum.position.x, plum.position.y) for plum in state.plums],
+            plum_bounced=state.plum_bounced,
             direction=state.snake.direction,
             score=state.score,
             level=state.level,

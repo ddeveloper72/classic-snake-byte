@@ -9,13 +9,16 @@ from random import Random
 
 from backend.app.domain.game import (
     MAX_DIFFICULTY,
+    MAX_PLUMS,
     MIN_DIFFICULTY,
     SECONDS_PER_CELL,
     Direction,
     GameBoard,
     GameEngine,
+    Plum,
     Position,
     build_obstacles,
+    spawn_corridor,
 )
 from backend.app.services.game_loop import GameLoopService
 
@@ -184,6 +187,121 @@ def test_demo_level_sets_autoplay_state() -> None:
     assert state.demo_mode is True
     assert state.level == 4
     assert state.score == 120
+
+
+def test_plum_count_is_clamped_to_the_original_range() -> None:
+    assert GameEngine(seed=1, plums=7).plums == MAX_PLUMS
+    assert GameEngine(seed=1, plums=-3).plums == 0
+    assert len(GameEngine(seed=1, plums=2).state.plums) == 2
+    assert GameEngine(seed=1).state.plums == []
+
+
+def test_plums_never_start_in_the_snakes_lane() -> None:
+    board = GameBoard()
+    corridor = spawn_corridor(board)
+
+    for seed in range(40):
+        state = GameEngine(board=board, seed=seed, plums=MAX_PLUMS).state
+        for plum in state.plums:
+            assert plum.position not in corridor
+            assert plum.position not in state.obstacles
+            assert plum.position not in state.snake.body
+            assert plum.position != state.food
+
+
+def test_plum_travels_diagonally_across_open_ground() -> None:
+    engine = GameEngine(seed=1)
+    engine.state.plums = [Plum(Position(5, 5), 1, 1)]
+
+    engine.tick()
+
+    assert engine.state.plums[0].position == Position(6, 6)
+    assert engine.state.plum_bounced is False
+
+
+def test_plum_rebounds_off_the_board_edge() -> None:
+    engine = GameEngine(board=GameBoard(width=8, height=8), seed=1)
+    # Travelling down-right from the bottom row, so only the vertical axis
+    # is obstructed and the horizontal heading must survive the bounce.
+    engine.state.plums = [Plum(Position(3, 7), 1, 1)]
+
+    engine.tick()
+
+    plum = engine.state.plums[0]
+    assert plum.position == Position(4, 6)
+    assert (plum.dx, plum.dy) == (1, -1)
+    assert engine.state.plum_bounced is True
+
+
+def test_plum_deflects_off_the_snake_body_without_killing() -> None:
+    engine = GameEngine(seed=1)
+    head = engine.state.snake.head
+    body_cell = engine.state.snake.body[1]
+    # Aimed at the second body segment, which shields rather than kills.
+    engine.state.plums = [Plum(Position(body_cell.x - 1, body_cell.y - 1), 1, 1)]
+
+    engine.tick()
+
+    assert engine.state.game_over is False
+    assert engine.state.plum_bounced is True
+    assert engine.state.snake.head != head
+
+
+def test_plum_striking_the_head_ends_the_game() -> None:
+    engine = GameEngine(seed=1)
+    head = engine.state.snake.head
+    # The snake moves right one cell this tick, so this plum arrives exactly
+    # on the cell the head is about to occupy.
+    engine.state.plums = [Plum(Position(head.x + 2, head.y + 1), -1, -1)]
+
+    engine.tick()
+
+    assert engine.state.plums[0].position == engine.state.snake.head
+    assert engine.state.game_over is True
+
+
+def test_steering_into_a_plum_ends_the_game() -> None:
+    engine = GameEngine(seed=1)
+    head = engine.state.snake.head
+    engine.state.plums = [Plum(Position(head.x + 1, head.y), 1, 1)]
+
+    engine.tick()
+
+    assert engine.state.game_over is True
+
+
+def test_plum_never_leaves_the_board_over_a_long_run() -> None:
+    board = GameBoard()
+    engine = GameEngine(board=board, seed=3, plums=MAX_PLUMS)
+    # Walls on every side make this the harshest rebound case available.
+    engine.state.level = 5
+    engine._apply_level_layout()
+
+    for _ in range(300):
+        engine._move_plums()
+        for plum in engine.state.plums:
+            assert board.contains(plum.position)
+            assert plum.position not in engine.state.obstacles
+
+
+def test_level_change_releases_a_plum_trapped_in_new_walls() -> None:
+    engine = GameEngine(seed=1, plums=1)
+    walls = build_obstacles(engine.state.board, 5)
+    engine.state.plums = [Plum(next(iter(walls)), 1, 1)]
+    engine.state.level = 5
+
+    engine._apply_level_layout()
+
+    assert len(engine.state.plums) == 1
+    assert engine.state.plums[0].position not in engine.state.obstacles
+
+
+def test_food_never_spawns_under_a_plum() -> None:
+    engine = GameEngine(board=GameBoard(width=6, height=6), seed=2, plums=MAX_PLUMS)
+
+    for _ in range(50):
+        food = engine._spawn_food(engine.state)
+        assert all(food != plum.position for plum in engine.state.plums)
 
 
 def test_game_loop_can_launch_demo_mode() -> None:

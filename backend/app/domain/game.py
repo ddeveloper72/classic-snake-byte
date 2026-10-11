@@ -14,12 +14,19 @@ Learning note:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from random import Random
 
 MIN_DIFFICULTY = 1
 MAX_DIFFICULTY = 5
+
+# The 1981 original asked "HOW MANY PLUMS?" before every game and accepted
+# zero, one, or two. Perilous plums bounce around the board and kill the snake
+# on contact with its head, so the count is a second difficulty dial.
+MIN_PLUMS = 0
+MAX_PLUMS = 2
 
 # Learning note:
 #     Difficulty is a player-chosen accessibility setting rather than a hidden
@@ -44,6 +51,12 @@ def clamp_difficulty(difficulty: int) -> int:
     """Return a difficulty forced into the supported 1-5 range."""
 
     return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, difficulty))
+
+
+def clamp_plums(plums: int) -> int:
+    """Return a plum count forced into the supported 0-2 range."""
+
+    return max(MIN_PLUMS, min(MAX_PLUMS, plums))
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,9 +120,7 @@ def spawn_corridor(board: GameBoard) -> frozenset[Position]:
 
     center_y = board.height // 2
     first_segment_x = board.width // 2 - 2
-    return frozenset(
-        Position(x, center_y) for x in range(first_segment_x, board.width)
-    )
+    return frozenset(Position(x, center_y) for x in range(first_segment_x, board.width))
 
 
 def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
@@ -156,6 +167,40 @@ def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
 
 
 @dataclass(slots=True)
+class Plum:
+    """A perilous plum that bounces diagonally around the board.
+
+    Learning note:
+        The original's plums travel on a diagonal and rebound off walls, maze
+        pieces, and the snake's own body, which is why they feel like a loose
+        pinball rather than a chasing enemy. Only the snake's head is lethal to
+        touch, so the body can be used as a shield to deflect a plum away.
+    """
+
+    position: Position
+    dx: int = 1
+    dy: int = 1
+
+    def reflected(self, *, flip_x: bool, flip_y: bool) -> Plum:
+        """Return this plum with either axis of travel reversed."""
+
+        return Plum(
+            self.position,
+            -self.dx if flip_x else self.dx,
+            -self.dy if flip_y else self.dy,
+        )
+
+    def advanced(self) -> Plum:
+        """Return this plum moved one cell along its current heading."""
+
+        return Plum(
+            Position(self.position.x + self.dx, self.position.y + self.dy),
+            self.dx,
+            self.dy,
+        )
+
+
+@dataclass(slots=True)
 class Snake:
     """The ordered snake body and its current direction of travel.
 
@@ -196,6 +241,10 @@ class GameState:
     level: int = 1
     difficulty: int = MIN_DIFFICULTY
     obstacles: frozenset[Position] = field(default_factory=frozenset)
+    plums: list[Plum] = field(default_factory=list)
+    # Transient, cleared at the start of every tick, so adapters can play a
+    # rebound sound without tracking plum headings between snapshots.
+    plum_bounced: bool = False
     paused: bool = False
     game_over: bool = False
     demo_mode: bool = False
@@ -208,6 +257,7 @@ class GameEngine:
         board: Optional board dimensions, useful for alternate modes and tests.
         seed: Optional random seed for reproducible food placement in tests.
         difficulty: The player-selected pace, from 1 (gentlest) to 5 (original).
+        plums: How many perilous plums bounce around the board, from 0 to 2.
 
     The engine owns exactly one game state. Public methods return that state so
     adapters can serialize the result without duplicating game rules.
@@ -219,10 +269,12 @@ class GameEngine:
         seed: int | None = None,
         *,
         difficulty: int = MIN_DIFFICULTY,
+        plums: int = MIN_PLUMS,
     ):
         self._board = board or GameBoard()
         self._random = Random(seed)
         self._difficulty = clamp_difficulty(difficulty)
+        self._plums = clamp_plums(plums)
         self.state = self._new_state()
 
     @property
@@ -230,6 +282,12 @@ class GameEngine:
         """Return the player-selected pace setting."""
 
         return self._difficulty
+
+    @property
+    def plums(self) -> int:
+        """Return how many perilous plums each new game starts with."""
+
+        return self._plums
 
     @property
     def level(self) -> int:
@@ -252,6 +310,12 @@ class GameEngine:
         self.state.difficulty = self._difficulty
         return self.state
 
+    def set_plums(self, plums: int) -> GameState:
+        """Choose how many perilous plums the next game starts with."""
+
+        self._plums = clamp_plums(plums)
+        return self.state
+
     def _new_state(self) -> GameState:
         """Build the standard three-segment starting state."""
 
@@ -269,7 +333,36 @@ class GameEngine:
             demo_mode=False,
         )
         state.food = self._spawn_food(state)
+        state.plums = self._spawn_plums(state, self._plums)
         return state
+
+    def _spawn_plums(self, state: GameState, count: int) -> list[Plum]:
+        """Place plums on free cells well clear of the snake's starting lane."""
+
+        corridor = spawn_corridor(state.board)
+        taken = {state.food, *state.snake.body}
+        plums: list[Plum] = []
+        for _ in range(clamp_plums(count)):
+            available = [
+                Position(x, y)
+                for y in range(state.board.height)
+                for x in range(state.board.width)
+                if Position(x, y) not in state.obstacles
+                and Position(x, y) not in corridor
+                and Position(x, y) not in taken
+            ]
+            if not available:
+                break
+            start = self._random.choice(available)
+            taken.add(start)
+            plums.append(
+                Plum(
+                    start,
+                    self._random.choice((-1, 1)),
+                    self._random.choice((-1, 1)),
+                )
+            )
+        return plums
 
     def _apply_level_layout(self) -> None:
         """Swap in the current level's walls without burying the live snake."""
@@ -279,6 +372,16 @@ class GameEngine:
         self.state.obstacles = layout - set(self.state.snake.body)
         if self.state.food in self.state.obstacles:
             self.state.food = self._spawn_food(self.state)
+        # A plum caught inside a brand-new wall would be stuck there forever,
+        # so any trapped plum is re-released onto open ground.
+        if any(plum.position in self.state.obstacles for plum in self.state.plums):
+            survivors = [
+                plum
+                for plum in self.state.plums
+                if plum.position not in self.state.obstacles
+            ]
+            trapped = len(self.state.plums) - len(survivors)
+            self.state.plums = survivors + self._spawn_plums(self.state, trapped)
 
     def set_demo_level(self, level: int) -> GameState:
         """Prepare a fresh board and score for a demo session at a chosen level."""
@@ -290,6 +393,9 @@ class GameEngine:
         self.state.demo_mode = True
         self._apply_level_layout()
         self.state.food = self._spawn_food(self.state)
+        # Demos re-place plums after the level walls exist so an attract-mode
+        # run shows the same hazards a player would face at that level.
+        self.state.plums = self._spawn_plums(self.state, self._plums)
         return self.state
 
     def reset(self) -> GameState:
@@ -329,6 +435,8 @@ class GameEngine:
         if self.state.paused or self.state.game_over:
             return self.state
 
+        self.state.plum_bounced = False
+
         next_head = self.state.snake.next_head()
         eats_food = next_head == self.state.food
         # On a normal move the tail vacates its cell, so moving into it is safe.
@@ -343,6 +451,11 @@ class GameEngine:
             self.state.game_over = True
             return self.state
 
+        # Steering into a plum is just as fatal as being struck by one.
+        if any(plum.position == next_head for plum in self.state.plums):
+            self.state.game_over = True
+            return self.state
+
         self.state.snake.body.insert(0, next_head)
         if eats_food:
             self.state.score += 10
@@ -354,19 +467,68 @@ class GameEngine:
         else:
             self.state.snake.body.pop()
         self.state.level = self.level
+        self._move_plums()
         return self.state
+
+    def _move_plums(self) -> None:
+        """Bounce every plum one cell and end the game on a head strike."""
+
+        if not self.state.plums:
+            return
+
+        head = self.state.snake.head
+        # The body deflects a plum but the head does not, which is what makes
+        # the snake's own tail a usable shield.
+        blockers = set(self.state.snake.body[1:]) | self.state.obstacles
+
+        def blocked(position: Position) -> bool:
+            return not self.state.board.contains(position) or position in blockers
+
+        moved: list[Plum] = []
+        for plum in self.state.plums:
+            moved.append(self._bounce(plum, blocked))
+        self.state.plums = moved
+
+        if any(plum.position == head for plum in self.state.plums):
+            self.state.game_over = True
+
+    def _bounce(self, plum: Plum, blocked: Callable[[Position], bool]) -> Plum:
+        """Return the plum's next cell, reflecting off whatever is in its way."""
+
+        target = plum.advanced()
+        if not blocked(target.position):
+            return target
+
+        self.state.plum_bounced = True
+        sideways = Position(plum.position.x + plum.dx, plum.position.y)
+        upright = Position(plum.position.x, plum.position.y + plum.dy)
+        flip_x = blocked(sideways)
+        flip_y = blocked(upright)
+        # A clear path on both axes means the plum clipped an exact corner, so
+        # it rebounds straight back the way it came.
+        if not flip_x and not flip_y:
+            flip_x = flip_y = True
+
+        deflected = plum.reflected(flip_x=flip_x, flip_y=flip_y).advanced()
+        if blocked(deflected.position):
+            # Wedged in a pocket: hold position but keep the new heading so the
+            # plum works itself free instead of vibrating on one cell forever.
+            return Plum(plum.position, deflected.dx, deflected.dy)
+        return deflected
 
     def _spawn_food(self, state: GameState) -> Position:
         """Choose an unoccupied cell, or the head when the board is full."""
 
         # Constructing valid cells first guarantees food never appears inside
-        # the snake or buried in a wall where it could not be collected.
+        # the snake, buried in a wall, or underneath a bouncing plum.
+        occupied_by_plum = {plum.position for plum in state.plums}
         available = [
             Position(x, y)
             for y in range(state.board.height)
             for x in range(state.board.width)
             if Position(x, y) not in state.snake.body
             and Position(x, y) not in state.obstacles
+            and Position(x, y) not in occupied_by_plum
         ]
         if not available:
             return state.snake.head

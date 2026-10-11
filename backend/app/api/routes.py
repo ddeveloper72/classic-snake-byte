@@ -55,7 +55,7 @@ async def start_game(request: StartGameRequest | None = None) -> GameStateRespon
 
     settings = request or StartGameRequest()
     await require_persistence().start_game()
-    await game_service.start_game(settings.difficulty)
+    await game_service.start_game(settings.difficulty, settings.plums)
     return state_response()
 
 

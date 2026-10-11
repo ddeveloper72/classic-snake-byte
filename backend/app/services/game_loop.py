@@ -14,6 +14,8 @@ from random import Random
 
 from backend.app.domain.game import (
     MAX_DIFFICULTY,
+    MAX_PLUMS,
+    MIN_PLUMS,
     Direction,
     GameEngine,
     GameState,
@@ -101,17 +103,25 @@ class GameLoopService:
         self._started = False
         self.state.demo_mode = False
 
-    async def start_game(self, difficulty: int | None = None) -> GameState:
+    async def start_game(
+        self,
+        difficulty: int | None = None,
+        plums: int | None = None,
+    ) -> GameState:
         """Reset the engine and enable autonomous movement.
 
         Args:
             difficulty: Optional player-selected pace from 1 to 5. Omitting it
                 keeps the pace already chosen for this service.
+            plums: Optional perilous plum count from 0 to 2. Omitting it keeps
+                the count already chosen for this service.
         """
 
         async with self._lock:
             if difficulty is not None:
                 self._engine.set_difficulty(difficulty)
+            if plums is not None:
+                self._engine.set_plums(plums)
             state = self._engine.reset()
             self._started = True
             self._record_player_interaction()
@@ -211,6 +221,9 @@ class GameLoopService:
 
         target_level = self._random.randint(1, 5)
         self._engine.set_difficulty(self._random.randint(2, MAX_DIFFICULTY))
+        # Attract mode advertises the perilous plums too, so a passer-by sees
+        # the hazard that makes the higher settings worth trying.
+        self._engine.set_plums(self._random.randint(MIN_PLUMS, MAX_PLUMS))
         state = self._engine.set_demo_level(target_level)
         self._started = True
         self._last_interaction = time.monotonic()
@@ -242,6 +255,10 @@ class GameLoopService:
             if next_head in self.state.snake.body[:-1]:
                 continue
             if next_head in self.state.obstacles:
+                continue
+            # A demo that drove into a plum would die in seconds, which is a
+            # poor advertisement for the higher settings.
+            if any(plum.position == next_head for plum in self.state.plums):
                 continue
             candidates.append(direction)
 
