@@ -62,7 +62,10 @@ walls, and the snake itself. They follow the original's asymmetry:
 
 Steering into a plum is just as fatal as being hit by one. Plums never spawn on
 the snake, on food, inside a wall, or in the spawn corridor, and a plum that a
-level change walls in is released onto open ground.
+level change walls in is released onto open ground. Because the original
+apple-plum interaction is undocumented, this version treats apples as rebound
+surfaces: a plum bounces away rather than occupying the food and making it
+dangerous to approach.
 
 ## Apples, the exit door, and level mazes
 

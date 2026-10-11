@@ -241,6 +241,22 @@ def test_plum_rebounds_off_the_board_edge() -> None:
     assert engine.state.plum_bounced is True
 
 
+def test_plum_rebounds_off_an_apple_without_moving_it() -> None:
+    engine = GameEngine(seed=1)
+    apple = Position(6, 6)
+    engine.state.food = apple
+    engine.state.plums = [Plum(Position(5, 5), 1, 1)]
+
+    engine._move_plums()
+
+    plum = engine.state.plums[0]
+    assert plum.position == Position(4, 4)
+    assert (plum.dx, plum.dy) == (-1, -1)
+    assert plum.position != apple
+    assert engine.state.food == apple
+    assert engine.state.plum_bounced is True
+
+
 def test_plum_deflects_off_the_snake_body_without_killing() -> None:
     engine = GameEngine(seed=1)
     head = engine.state.snake.head

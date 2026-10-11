@@ -569,8 +569,12 @@ class GameEngine:
 
         head = self.state.snake.head
         # The body deflects a plum but the head does not, which is what makes
-        # the snake's own tail a usable shield.
+        # the snake's own tail a usable shield. Treat the apple as solid too:
+        # the original interaction is undocumented, and bouncing keeps food
+        # safe to approach instead of turning it into an invisible trap.
         blockers = set(self.state.snake.body[1:]) | self.state.obstacles
+        if self.state.food is not None:
+            blockers.add(self.state.food)
 
         def blocked(position: Position) -> bool:
             return not self.state.board.contains(position) or position in blockers
