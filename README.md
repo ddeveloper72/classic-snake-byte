@@ -33,8 +33,16 @@ new game:
 | 5 | SNAKEBITE | 0.13 |
 
 Each in-game level speeds the snake by 6 percent, but the pace never drops
-below 60 percent of the chosen starting interval. A player on STROLL therefore
-stays at or above 0.24 seconds per cell no matter how long the run lasts.
+below 60 percent of the chosen starting interval from level progression alone.
+A player on STROLL therefore reaches a 0.24-second level-speed floor before any
+temporary time pressure is applied.
+
+There is also gentle time pressure within each level. Active player time raises
+the snake's speed by 5 percent every 20 seconds, up to a 25 percent boost. This
+is one continuous timer for the whole level: eating an apple does not reset it,
+but opening the exit door stops it and entering the next level resets it.
+Pausing freezes the timer, and idle demo games never accumulate pressure. The
+PACE display and a short warning sound announce each increase.
 
 The selection, and the sound on/off choice, persist in `localStorage`.
 

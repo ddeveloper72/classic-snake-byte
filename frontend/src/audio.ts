@@ -114,6 +114,18 @@ export class SoundBoard {
     )
   }
 
+  /** Warn that the per-level timer has raised the snake's speed. */
+  hurry(): void {
+    this.play(
+      [
+        { frequency: 784, duration: 0.05 },
+        { frequency: 784, duration: 0.05 },
+        { frequency: 988, duration: 0.1 },
+      ],
+      PEAK_GAIN * 0.8,
+    )
+  }
+
   private play(tones: Tone[], gain: number = PEAK_GAIN): void {
     if (this.muted) {
       return

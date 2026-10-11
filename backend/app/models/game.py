@@ -70,6 +70,8 @@ class GameStateResponse(BaseModel):
     door_open: bool
     door_x: int
     level_cleared: bool
+    level_elapsed_seconds: float
+    speed_pressure_percent: int
     difficulty: int
     started: bool
     paused: bool
@@ -98,6 +100,8 @@ class GameStateResponse(BaseModel):
             door_open=state.door_open,
             door_x=state.door_x,
             level_cleared=state.level_cleared,
+            level_elapsed_seconds=state.level_elapsed_seconds,
+            speed_pressure_percent=state.speed_pressure_step * 5,
             difficulty=state.difficulty,
             started=started,
             paused=state.paused,

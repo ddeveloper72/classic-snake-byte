@@ -46,6 +46,13 @@ SECONDS_PER_CELL: dict[int, float] = {
 LEVEL_SPEED_STEP = 0.94
 MIN_LEVEL_SPEED_RATIO = 0.6
 
+# Taking too long on one board adds gentle arcade pressure without overriding
+# the player's chosen base difficulty. Five 20-second stages produce the
+# selected 25% cap, and the level timer resets only after using the exit door.
+PRESSURE_INTERVAL_SECONDS = 20.0
+PRESSURE_SPEED_STEP = 0.05
+MAX_PRESSURE_STEPS = 5
+
 # Learning note:
 #     Fifteen apples let each maze develop rather than ending after only a few
 #     turns. More apples share the board as a level progresses, while the total
@@ -312,6 +319,8 @@ class GameState:
     # Additional tail cells earned by an apple appear over future ticks. This
     # avoids overlapping duplicate segments when one apple awards 2-4 cells.
     growth_pending: int = 0
+    level_elapsed_seconds: float = 0.0
+    speed_pressure_step: int = 0
     door_open: bool = False
     door_x: int = 0
     difficulty: int = MIN_DIFFICULTY
@@ -381,11 +390,41 @@ class GameEngine:
 
     @property
     def tick_interval(self) -> float:
-        """Return seconds per cell for the chosen difficulty and current level."""
+        """Return seconds per cell after level and time-pressure acceleration."""
 
         base = SECONDS_PER_CELL[self._difficulty]
         ramped = base * (LEVEL_SPEED_STEP ** (self.level - 1))
-        return max(base * MIN_LEVEL_SPEED_RATIO, ramped)
+        level_interval = max(base * MIN_LEVEL_SPEED_RATIO, ramped)
+        pressure_multiplier = (
+            1.0 + self.state.speed_pressure_step * PRESSURE_SPEED_STEP
+        )
+        return level_interval / pressure_multiplier
+
+    def advance_level_time(self, seconds: float) -> GameState:
+        """Add active player time and update the current pressure stage.
+
+        Paused, completed, and demonstration games do not accumulate pressure.
+        Keeping time advancement explicit makes the rule deterministic in
+        tests and prevents server scheduling delays from unfairly speeding up
+        the snake.
+        """
+
+        if seconds < 0:
+            raise ValueError("seconds cannot be negative")
+        if (
+            self.state.paused
+            or self.state.game_over
+            or self.state.demo_mode
+            or self.state.door_open
+        ):
+            return self.state
+
+        self.state.level_elapsed_seconds += seconds
+        self.state.speed_pressure_step = min(
+            MAX_PRESSURE_STEPS,
+            int(self.state.level_elapsed_seconds // PRESSURE_INTERVAL_SECONDS),
+        )
+        return self.state
 
     def set_difficulty(self, difficulty: int) -> GameState:
         """Change the pace setting, applying it to the current state."""

@@ -184,8 +184,16 @@ class GameLoopService:
             # An idle service polls on a short fixed timer so a slow difficulty
             # never delays the demo; a running game paces on the engine's speed.
             if self._started:
-                await asyncio.sleep(self._engine.tick_interval)
+                scheduled_interval = self._engine.tick_interval
+                timed_state = self.state
+                was_paused = timed_state.paused
+                was_demo_before_sleep = timed_state.demo_mode
+                await asyncio.sleep(scheduled_interval)
             else:
+                scheduled_interval = 0.0
+                timed_state = None
+                was_paused = False
+                was_demo_before_sleep = False
                 await asyncio.sleep(self._idle_poll_interval)
             async with self._lock:
                 if not self._started:
@@ -204,13 +212,19 @@ class GameLoopService:
                 if state.paused:
                     continue
 
-                was_demo = self.demo_mode
-                if was_demo:
+                is_demo = self.demo_mode
+                if is_demo:
                     self._engine.turn(self._demo_direction())
+                elif (
+                    timed_state is state
+                    and not was_paused
+                    and not was_demo_before_sleep
+                ):
+                    self._engine.advance_level_time(scheduled_interval)
 
                 self._engine.tick()
                 if self.state.game_over:
-                    if not was_demo and self._on_game_over is not None:
+                    if not is_demo and self._on_game_over is not None:
                         await self._on_game_over(self.state)
                     self._started = False
                     self.state.demo_mode = False

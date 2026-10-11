@@ -62,6 +62,8 @@ def test_first_level_state_reports_bar_and_initial_apple(client: TestClient) -> 
     assert len({cell[1] for cell in state["obstacles"]}) == 1
     assert len(state["foods"]) == 1
     assert "food" not in state
+    assert state["level_elapsed_seconds"] == 0
+    assert state["speed_pressure_percent"] == 0
 
 
 def test_websocket_returns_authoritative_state(client: TestClient) -> None:

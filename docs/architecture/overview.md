@@ -49,6 +49,13 @@ browser cannot accelerate or slow the simulation by changing its own timing.
 Per-level acceleration is bounded by a floor relative to the chosen base, which
 keeps the gentlest setting genuinely gentle at every level.
 
+Active player time adds a second, bounded multiplier: 5 percent every 20
+seconds, capped at 25 percent. The service advances the timer by the scheduled
+movement interval rather than wall-clock time, so event-loop stalls cannot
+penalize the player. The domain engine ignores timer updates while paused, in
+demo mode, after game over, or once the exit door is open. A new level creates
+fresh state and therefore resets the timer.
+
 The domain layer selects one of ten handcrafted obstacle patterns and publishes
 it as a list of coordinates. Patterns repeat after level 10 while the level and
 speed continue rising. Two invariants are enforced where the layout is built,

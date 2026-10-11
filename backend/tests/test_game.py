@@ -7,12 +7,18 @@ logic changes rather than random test data.
 import asyncio
 from random import Random
 
+import pytest
+
+from backend.app.domain import game as game_rules
 from backend.app.domain.game import (
     APPLES_PER_LEVEL,
     MAX_DIFFICULTY,
     MAX_PLUMS,
+    MAX_PRESSURE_STEPS,
     MAZE_COUNT,
     MIN_DIFFICULTY,
+    PRESSURE_INTERVAL_SECONDS,
+    PRESSURE_SPEED_STEP,
     SECONDS_PER_CELL,
     Direction,
     GameBoard,
@@ -158,6 +164,54 @@ def test_gentle_difficulty_never_outruns_its_floor() -> None:
     floor = SECONDS_PER_CELL[MIN_DIFFICULTY] * 0.6
 
     assert engine.tick_interval == floor
+
+
+def test_level_timer_adds_five_percent_speed_every_twenty_seconds() -> None:
+    engine = GameEngine(seed=1, difficulty=1)
+    base_interval = engine.tick_interval
+
+    engine.advance_level_time(PRESSURE_INTERVAL_SECONDS - 0.01)
+
+    assert engine.state.speed_pressure_step == 0
+    assert engine.tick_interval == base_interval
+
+    engine.advance_level_time(0.01)
+
+    assert engine.state.speed_pressure_step == 1
+    assert engine.tick_interval == base_interval / (1 + PRESSURE_SPEED_STEP)
+
+
+def test_level_timer_caps_at_twenty_five_percent_faster() -> None:
+    engine = GameEngine(seed=1, difficulty=1)
+    base_interval = engine.tick_interval
+
+    engine.advance_level_time(PRESSURE_INTERVAL_SECONDS * 100)
+
+    assert engine.state.speed_pressure_step == MAX_PRESSURE_STEPS
+    assert engine.tick_interval == base_interval / 1.25
+
+
+def test_level_timer_ignores_pauses_demos_and_an_open_door() -> None:
+    for state_change in ("paused", "demo_mode", "door_open"):
+        engine = GameEngine(seed=1)
+        setattr(engine.state, state_change, True)
+
+        engine.advance_level_time(PRESSURE_INTERVAL_SECONDS)
+
+        assert engine.state.level_elapsed_seconds == 0
+        assert engine.state.speed_pressure_step == 0
+
+
+def test_eating_an_apple_does_not_reset_the_level_timer() -> None:
+    engine = GameEngine(seed=1)
+    engine.advance_level_time(PRESSURE_INTERVAL_SECONDS)
+    elapsed = engine.state.level_elapsed_seconds
+    engine.state.foods = [engine.state.snake.next_head()]
+
+    engine.tick()
+
+    assert engine.state.level_elapsed_seconds == elapsed
+    assert engine.state.speed_pressure_step == 1
 
 
 def test_first_level_starts_with_a_horizontal_bar() -> None:
@@ -399,6 +453,25 @@ def test_game_loop_can_launch_demo_mode() -> None:
     asyncio.run(run_test())
 
 
+def test_game_loop_advances_pressure_during_active_player_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run_test() -> None:
+        monkeypatch.setattr(game_rules, "PRESSURE_INTERVAL_SECONDS", 0.05)
+        service = GameLoopService(idle_timeout=60)
+        await service.start_game(difficulty=5)
+        signals = service.subscribe()
+        await service.start_loop()
+        try:
+            await asyncio.wait_for(signals.get(), timeout=0.5)
+            assert service.state.speed_pressure_step > 0
+        finally:
+            service.unsubscribe(signals)
+            await service.stop_loop()
+
+    asyncio.run(run_test())
+
+
 def test_game_loop_automatically_starts_demo_after_idle_timeout() -> None:
     async def run_test() -> None:
         service = GameLoopService(
@@ -507,6 +580,8 @@ def test_clearing_the_quota_opens_the_door_and_stops_the_apples() -> None:
 def test_leaving_through_the_open_door_advances_the_level() -> None:
     engine = GameEngine(seed=7)
     _eat_until_door_opens(engine)
+    engine.state.level_elapsed_seconds = 100
+    engine.state.speed_pressure_step = MAX_PRESSURE_STEPS
 
     score_before = engine.state.score
     engine.state.snake.body = [Position(engine.state.door_x, 0)]
@@ -520,6 +595,8 @@ def test_leaving_through_the_open_door_advances_the_level() -> None:
     assert engine.state.door_open is False
     assert engine.state.apples_remaining == APPLES_PER_LEVEL
     assert engine.state.foods
+    assert engine.state.level_elapsed_seconds == 0
+    assert engine.state.speed_pressure_step == 0
 
 
 def test_the_top_wall_still_kills_away_from_the_door() -> None:

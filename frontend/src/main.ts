@@ -21,6 +21,8 @@ interface GameState {
   door_open: boolean
   door_x: number
   level_cleared: boolean
+  level_elapsed_seconds: number
+  speed_pressure_percent: number
   obstacles: [number, number][]
   plums: [number, number][]
   plum_bounced: boolean
@@ -153,6 +155,10 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <span>APPLES</span>
           <strong id="apples">15</strong>
         </div>
+        <div class="score-box">
+          <span>PACE</span>
+          <strong id="pace">BASE</strong>
+        </div>
       </div>
     </header>
 
@@ -262,6 +268,7 @@ if (context === null) {
 const score = requireElement<HTMLElement>('#score')
 const level = requireElement<HTMLElement>('#level')
 const apples = requireElement<HTMLElement>('#apples')
+const pace = requireElement<HTMLElement>('#pace')
 const instructions = requireElement<HTMLElement>('#instructions')
 const playerName = requireElement<HTMLButtonElement>('#player-name')
 const overlay = requireElement<HTMLElement>('#overlay')
@@ -285,6 +292,7 @@ let lastScore = 0
 let lastLevel = 1
 let lastDoorOpen = false
 let lastGameOver = false
+let lastPressurePercent = 0
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -363,6 +371,11 @@ function isGameState(value: unknown): value is GameState {
     typeof candidate.door_open === 'boolean' &&
     typeof candidate.door_x === 'number' &&
     typeof candidate.level_cleared === 'boolean' &&
+    typeof candidate.level_elapsed_seconds === 'number' &&
+    Number(candidate.level_elapsed_seconds) >= 0 &&
+    Number.isInteger(candidate.speed_pressure_percent) &&
+    Number(candidate.speed_pressure_percent) >= 0 &&
+    Number(candidate.speed_pressure_percent) <= 25 &&
     Array.isArray(candidate.obstacles) &&
     candidate.obstacles.every(isCoordinate) &&
     Array.isArray(candidate.plums) &&
@@ -447,11 +460,19 @@ function announce(game: GameState): void {
   if (game.plum_bounced && !game.game_over) {
     sounds.plumBounce()
   }
+  if (
+    game.speed_pressure_percent > lastPressurePercent &&
+    !game.demo_mode &&
+    !game.game_over
+  ) {
+    sounds.hurry()
+  }
 
   lastScore = game.score
   lastLevel = game.level
   lastDoorOpen = game.door_open
   lastGameOver = game.game_over
+  lastPressurePercent = game.speed_pressure_percent
 }
 
 function render(game: GameState): void {
@@ -480,12 +501,21 @@ function render(game: GameState): void {
   score.textContent = game.score.toString().padStart(6, '0')
   level.textContent = game.level.toString()
   apples.textContent = game.door_open ? 'EXIT' : game.apples_remaining.toString()
+  pace.textContent =
+    game.speed_pressure_percent === 0
+      ? 'BASE'
+      : `+${game.speed_pressure_percent}%`
   playerName.textContent = getPlayerName()
 
   // The door is easy to miss mid-game, so the hint line calls it out directly.
   if (game.door_open && !game.game_over) {
     instructions.textContent =
       'Apples cleared — escape through the glowing door in the top wall!'
+  } else if (game.speed_pressure_percent > 0 && !game.demo_mode) {
+    const atMaximum = game.speed_pressure_percent === 25
+    instructions.textContent = atMaximum
+      ? 'HURRY — maximum time pressure: snake speed +25%'
+      : `HURRY — snake speed +${game.speed_pressure_percent}%; it rises every 20 seconds`
   } else {
     instructions.textContent = steeringHint()
   }
