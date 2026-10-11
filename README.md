@@ -125,6 +125,20 @@ level change can never materialise on top of the snake. Clearing a level returns
 the snake to its starting length, which also guarantees the next maze can never
 close around it.
 
+## Trophy and automatic replay
+
+Every completed player game receives a three-second trophy presentation with
+the player's name, score, and highest level. The browser records the
+authoritative snapshots it receives during play, excluding paused time, then
+replays the run automatically at 2× speed. This is a recording of the real
+server result rather than a second simulation that could drift from it.
+
+`NEW GAME` remains available throughout the trophy and replay and cancels the
+sequence immediately. If the player does nothing, the client calls
+`POST /game/home` when the replay finishes. The server stops any attract-mode
+game that may have started in the background and returns a fresh inactive state,
+allowing the browser to show the normal `READY?` screen.
+
 ## Run locally
 
 Create the Python virtual environment and install the backend:

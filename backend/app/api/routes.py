@@ -66,6 +66,14 @@ def get_state() -> GameStateResponse:
     return state_response()
 
 
+@router.post("/game/home", response_model=GameStateResponse)
+async def return_home() -> GameStateResponse:
+    """Stop gameplay and return the client to a fresh READY state."""
+
+    await game_service.return_home()
+    return state_response()
+
+
 @router.post("/game/input", response_model=GameStateResponse)
 async def input_direction(request: InputRequest) -> GameStateResponse:
     """Apply a player's direction request and return the resulting state."""

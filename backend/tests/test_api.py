@@ -54,6 +54,22 @@ def test_start_rejects_an_out_of_range_difficulty(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_home_stops_the_game_and_returns_a_fresh_ready_state(
+    client: TestClient,
+) -> None:
+    client.post("/game/start", json={"difficulty": 5, "plums": 2})
+
+    response = client.post("/game/home")
+    state = response.json()
+
+    assert response.status_code == 200
+    assert state["started"] is False
+    assert state["demo_mode"] is False
+    assert state["game_over"] is False
+    assert state["score"] == 0
+    assert state["level"] == 1
+
+
 def test_first_level_state_reports_bar_and_initial_apple(client: TestClient) -> None:
     response = client.post("/game/start", json={"difficulty": 1})
     state = response.json()

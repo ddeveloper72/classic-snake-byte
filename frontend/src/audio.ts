@@ -64,6 +64,15 @@ export class SoundBoard {
     ])
   }
 
+  trophy(): void {
+    this.play([
+      { frequency: 523, duration: 0.08 },
+      { frequency: 659, duration: 0.08 },
+      { frequency: 784, duration: 0.1 },
+      { frequency: 1047, duration: 0.22 },
+    ])
+  }
+
   gameOver(): void {
     this.play([
       { frequency: 311, duration: 0.14 },

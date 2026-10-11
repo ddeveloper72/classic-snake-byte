@@ -41,6 +41,13 @@ The browser never calculates collisions, scores, growth, or food placement.
 Update queues hold at most one signal, so a slow observer receives the latest
 state without accumulating stale frames or affecting the game speed.
 
+For post-game replay, the browser records those authoritative snapshots against
+active-play time. Paused time is excluded, and playback renders the recording at
+2× without sending input or advancing the engine. Incoming demo snapshots are
+ignored during the trophy/replay sequence. On completion, `POST /game/home`
+resets the engine to a fresh inactive state; starting a new game cancels the
+sequence at any point.
+
 ## Speed and obstacles
 
 The tick interval is derived from a player-selected difficulty, 1 through 5,

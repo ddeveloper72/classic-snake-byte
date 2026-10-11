@@ -36,8 +36,16 @@ interface GameState {
   demo_mode: boolean
 }
 
+interface ReplayFrame {
+  game: GameState
+  activeAt: number
+}
+
 const CANVAS_WIDTH = 720
 const CANVAS_HEIGHT = 480
+const TROPHY_DURATION_MS = 3000
+const REPLAY_SPEED = 2
+const MAX_REPLAY_FRAMES = 20_000
 const DIRECTIONS: readonly Direction[] = ['up', 'right', 'down', 'left']
 
 /**
@@ -170,9 +178,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         aria-label="Snakebite game board"
       ></canvas>
       <div id="overlay" class="overlay">
+        <span id="trophy-icon" class="trophy-icon" aria-hidden="true" hidden>🏆</span>
         <strong id="overlay-title">CONNECTING</strong>
         <span id="overlay-message">Starting the game link...</span>
       </div>
+      <div id="replay-badge" class="replay-badge" hidden>REPLAY 2×</div>
     </section>
 
     <section class="controls" aria-label="Game controls">
@@ -274,6 +284,8 @@ const playerName = requireElement<HTMLButtonElement>('#player-name')
 const overlay = requireElement<HTMLElement>('#overlay')
 const overlayTitle = requireElement<HTMLElement>('#overlay-title')
 const overlayMessage = requireElement<HTMLElement>('#overlay-message')
+const trophyIcon = requireElement<HTMLElement>('#trophy-icon')
+const replayBadge = requireElement<HTMLElement>('#replay-badge')
 const connection = requireElement<HTMLElement>('#connection')
 const startButton = requireElement<HTMLButtonElement>('#start')
 const pauseButton = requireElement<HTMLButtonElement>('#pause')
@@ -293,6 +305,13 @@ let lastLevel = 1
 let lastDoorOpen = false
 let lastGameOver = false
 let lastPressurePercent = 0
+let replayFrames: ReplayFrame[] = []
+let replayActiveMilliseconds = 0
+let lastRecordedAt = 0
+let recordingPlayerGame = false
+let sequencePhase: 'none' | 'trophy' | 'replay' = 'none'
+let sequenceToken = 0
+let trophyTimer: number | null = null
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -333,8 +352,7 @@ function connect(): void {
       if (!isGameState(nextState)) {
         throw new Error('The game server returned an invalid state.')
       }
-      state = nextState
-      render(nextState)
+      acceptGameState(nextState)
     } catch (error) {
       showClientError(error)
     }
@@ -404,6 +422,64 @@ function isCoordinate(value: unknown): value is [number, number] {
   )
 }
 
+function beginReplayRecording(game: GameState): void {
+  replayFrames = []
+  replayActiveMilliseconds = 0
+  lastRecordedAt = performance.now()
+  recordingPlayerGame = true
+  recordReplayFrame(game, lastRecordedAt)
+}
+
+/**
+ * Store server snapshots against active-play time rather than wall time.
+ *
+ * Pauses therefore remain instantaneous in the replay, and the frame timing
+ * can be played back at an honest 2× regardless of the chosen snake speed.
+ */
+function recordReplayFrame(game: GameState, recordedAt = performance.now()): void {
+  const previous = replayFrames.at(-1)
+  if (previous !== undefined && !previous.game.paused && !previous.game.game_over) {
+    replayActiveMilliseconds += Math.max(0, recordedAt - lastRecordedAt)
+  }
+  lastRecordedAt = recordedAt
+
+  if (replayFrames.length >= MAX_REPLAY_FRAMES) {
+    // Preserve the whole run while halving only its visual frame density.
+    replayFrames = replayFrames.filter((_, index) => index === 0 || index % 2 === 1)
+  }
+  replayFrames.push({ game, activeAt: replayActiveMilliseconds })
+}
+
+function acceptGameState(game: GameState): void {
+  if (
+    sequencePhase === 'none' &&
+    !recordingPlayerGame &&
+    game.started &&
+    !game.demo_mode &&
+    !game.game_over
+  ) {
+    beginReplayRecording(game)
+  } else if (recordingPlayerGame && !game.demo_mode) {
+    recordReplayFrame(game)
+  }
+
+  const completedPlayerGame =
+    sequencePhase === 'none' &&
+    recordingPlayerGame &&
+    game.game_over &&
+    !game.demo_mode
+
+  state = game
+  if (sequencePhase !== 'none') {
+    return
+  }
+
+  render(game)
+  if (completedPlayerGame) {
+    startCompletionSequence(game)
+  }
+}
+
 function send(message: object): void {
   if (socket?.readyState !== WebSocket.OPEN) {
     setConnectionStatus('disconnected', 'Input ignored — server unavailable')
@@ -429,12 +505,17 @@ async function postGameAction(action: 'start' | 'pause' | 'resume'): Promise<voi
   if (!isGameState(nextState)) {
     throw new Error('The game server returned an invalid state.')
   }
-  state = nextState
-  render(nextState)
+  acceptGameState(nextState)
 }
 
 function turn(direction: Direction): void {
-  if (state === null || !state.started || state.paused || state.game_over) {
+  if (
+    sequencePhase !== 'none' ||
+    state === null ||
+    !state.started ||
+    state.paused ||
+    state.game_over
+  ) {
     return
   }
   if (direction !== state.direction) {
@@ -455,7 +536,11 @@ function announce(game: GameState): void {
     sounds.doorOpen()
   }
   if (game.game_over && !lastGameOver) {
-    sounds.gameOver()
+    if (recordingPlayerGame && !game.demo_mode) {
+      sounds.trophy()
+    } else {
+      sounds.gameOver()
+    }
   }
   if (game.plum_bounced && !game.game_over) {
     sounds.plumBounce()
@@ -508,7 +593,9 @@ function render(game: GameState): void {
   playerName.textContent = getPlayerName()
 
   // The door is easy to miss mid-game, so the hint line calls it out directly.
-  if (game.door_open && !game.game_over) {
+  if (sequencePhase === 'replay') {
+    instructions.textContent = 'REPLAY 2× — press New Game to play again'
+  } else if (game.door_open && !game.game_over) {
     instructions.textContent =
       'Apples cleared — escape through the glowing door at the top centre!'
   } else if (game.speed_pressure_percent > 0 && !game.demo_mode) {
@@ -519,10 +606,13 @@ function render(game: GameState): void {
   } else {
     instructions.textContent = steeringHint()
   }
-  pauseButton.disabled = !game.started || game.game_over
+  pauseButton.disabled =
+    sequencePhase !== 'none' || !game.started || game.game_over
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
-  if (game.demo_mode) {
+  if (sequencePhase === 'replay') {
+    hideOverlay()
+  } else if (game.demo_mode) {
     showOverlay('DEMO MODE', `Autoplaying at level ${game.level} — press New Game`)
   } else if (!game.started) {
     showOverlay('READY?', 'Choose a snake speed, then press New Game')
@@ -533,6 +623,115 @@ function render(game: GameState): void {
   } else {
     hideOverlay()
   }
+}
+
+function startCompletionSequence(finalGame: GameState): void {
+  recordingPlayerGame = false
+  sequencePhase = 'trophy'
+  const token = ++sequenceToken
+  replayBadge.hidden = true
+  trophyIcon.hidden = false
+  overlay.classList.add('trophy-presentation')
+  showOverlay(
+    'TROPHY EARNED',
+    `${getPlayerName()} scored ${finalGame.score} and reached level ${finalGame.level}`,
+  )
+  instructions.textContent = 'Your 2× replay starts shortly — New Game is ready now'
+  pauseButton.disabled = true
+
+  const frames = replayFrames.slice()
+  trophyTimer = window.setTimeout(() => {
+    trophyTimer = null
+    startReplay(frames, token)
+  }, TROPHY_DURATION_MS)
+}
+
+function startReplay(frames: ReplayFrame[], token: number): void {
+  if (token !== sequenceToken || sequencePhase !== 'trophy') {
+    return
+  }
+
+  sequencePhase = 'replay'
+  trophyIcon.hidden = true
+  overlay.classList.remove('trophy-presentation')
+  replayBadge.hidden = false
+  hideOverlay()
+
+  if (frames.length === 0) {
+    void finishCompletionSequence(token)
+    return
+  }
+
+  const firstActiveAt = frames[0].activeAt
+  const replayStartedAt = performance.now()
+  let frameIndex = 0
+  render(frames[0].game)
+
+  const playFrame = (now: number): void => {
+    if (token !== sequenceToken || sequencePhase !== 'replay') {
+      return
+    }
+
+    const replayPosition = (now - replayStartedAt) * REPLAY_SPEED
+    while (
+      frameIndex + 1 < frames.length &&
+      frames[frameIndex + 1].activeAt - firstActiveAt <= replayPosition
+    ) {
+      frameIndex += 1
+    }
+    render(frames[frameIndex].game)
+
+    if (frameIndex + 1 < frames.length) {
+      window.requestAnimationFrame(playFrame)
+    } else {
+      void finishCompletionSequence(token)
+    }
+  }
+
+  window.requestAnimationFrame(playFrame)
+}
+
+async function finishCompletionSequence(token: number): Promise<void> {
+  if (token !== sequenceToken || sequencePhase !== 'replay') {
+    return
+  }
+
+  replayBadge.hidden = true
+  try {
+    const response = await fetch('/game/home', { method: 'POST' })
+    if (!response.ok) {
+      throw new Error(`Game server rejected home: HTTP ${response.status}`)
+    }
+    const homeState: unknown = await response.json()
+    if (!isGameState(homeState)) {
+      throw new Error('The game server returned an invalid home state.')
+    }
+    if (token !== sequenceToken) {
+      return
+    }
+
+    sequencePhase = 'none'
+    replayFrames = []
+    state = homeState
+    render(homeState)
+  } catch (error) {
+    if (token === sequenceToken) {
+      sequencePhase = 'none'
+      showClientError(error)
+    }
+  }
+}
+
+function cancelCompletionSequence(): void {
+  sequenceToken += 1
+  if (trophyTimer !== null) {
+    window.clearTimeout(trophyTimer)
+    trophyTimer = null
+  }
+  sequencePhase = 'none'
+  trophyIcon.hidden = true
+  replayBadge.hidden = true
+  overlay.classList.remove('trophy-presentation')
 }
 
 /**
@@ -971,6 +1170,9 @@ startButton.addEventListener('click', () => {
   // Audio must be unlocked inside a real user gesture before any cue is heard.
   sounds.unlock()
   sounds.start()
+  cancelCompletionSequence()
+  recordingPlayerGame = false
+  replayFrames = []
   focusGameBoard()
   void postGameAction('start').catch(showClientError)
 })
@@ -1013,7 +1215,12 @@ playerName.addEventListener('click', () => {
 })
 
 async function togglePause(): Promise<void> {
-  if (state === null || !state.started || state.game_over) {
+  if (
+    sequencePhase !== 'none' ||
+    state === null ||
+    !state.started ||
+    state.game_over
+  ) {
     return
   }
   try {
@@ -1034,6 +1241,7 @@ focusGameBoard()
 setSoundEnabled(window.localStorage.getItem(SOUND_STORAGE_KEY) !== 'off')
 
 window.addEventListener('beforeunload', () => {
+  cancelCompletionSequence()
   if (reconnectTimer !== null) {
     window.clearTimeout(reconnectTimer)
   }

@@ -453,6 +453,24 @@ def test_game_loop_can_launch_demo_mode() -> None:
     asyncio.run(run_test())
 
 
+def test_game_loop_can_return_to_an_inactive_home_state() -> None:
+    async def run_test() -> None:
+        service = GameLoopService()
+        await service.start_game(difficulty=5, plums=2)
+        service.state.score = 90
+        service.state.level = 4
+
+        state = await service.return_home()
+
+        assert service.started is False
+        assert state.demo_mode is False
+        assert state.game_over is False
+        assert state.score == 0
+        assert state.level == 1
+
+    asyncio.run(run_test())
+
+
 def test_game_loop_advances_pressure_during_active_player_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

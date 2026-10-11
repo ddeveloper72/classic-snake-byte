@@ -135,6 +135,16 @@ class GameLoopService:
         async with self._lock:
             return self._start_demo_locked()
 
+    async def return_home(self) -> GameState:
+        """Stop the current session and expose a fresh, inactive board."""
+
+        async with self._lock:
+            state = self._engine.reset()
+            self._started = False
+            self._record_player_interaction()
+            self._notify_subscribers()
+            return state
+
     async def turn(self, direction: Direction) -> GameState:
         """Apply a direction request to an active game."""
 

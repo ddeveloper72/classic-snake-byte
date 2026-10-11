@@ -179,6 +179,41 @@ canvas {
   color: #8cd69c;
 }
 
+.overlay .trophy-icon {
+  font-size: clamp(4rem, 14vw, 8rem);
+  line-height: 1;
+  filter: drop-shadow(0 0 18px rgba(255, 176, 0, 0.55));
+}
+
+.overlay.trophy-presentation {
+  background:
+    radial-gradient(circle, rgba(255, 176, 0, 0.2), transparent 45%),
+    rgba(2, 9, 5, 0.9);
+}
+
+.overlay.trophy-presentation strong {
+  font-size: clamp(1.5rem, 5vw, 3rem);
+}
+
+.trophy-icon[hidden],
+.replay-badge[hidden] {
+  display: none;
+}
+
+.replay-badge {
+  position: absolute;
+  top: 1.2rem;
+  right: 1.2rem;
+  z-index: 2;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #ffb000;
+  color: #ffcf5c;
+  background: rgba(2, 9, 5, 0.9);
+  font-size: clamp(0.7rem, 1.5vw, 1rem);
+  letter-spacing: 0.12em;
+  box-shadow: 0 0 12px rgba(255, 176, 0, 0.28);
+}
+
 .controls {
   display: grid;
   justify-items: center;
