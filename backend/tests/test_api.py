@@ -1,3 +1,5 @@
+"""Integration tests for the REST and WebSocket transport contracts."""
+
 from fastapi.testclient import TestClient
 
 from backend.app.main import app

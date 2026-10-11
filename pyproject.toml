@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.10",
     "uvicorn>=0.34",
+    "websockets>=17.2",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +18,9 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.9",
 ]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
