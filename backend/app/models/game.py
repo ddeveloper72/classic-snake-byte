@@ -76,6 +76,7 @@ class GameStateResponse(BaseModel):
     started: bool
     paused: bool
     game_over: bool
+    game_won: bool
     demo_mode: bool
 
     @classmethod
@@ -106,5 +107,6 @@ class GameStateResponse(BaseModel):
             started=started,
             paused=state.paused,
             game_over=state.game_over,
+            game_won=state.game_won,
             demo_mode=state.demo_mode,
         )

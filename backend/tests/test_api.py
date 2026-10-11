@@ -66,6 +66,7 @@ def test_home_stops_the_game_and_returns_a_fresh_ready_state(
     assert state["started"] is False
     assert state["demo_mode"] is False
     assert state["game_over"] is False
+    assert state["game_won"] is False
     assert state["score"] == 0
     assert state["level"] == 1
 

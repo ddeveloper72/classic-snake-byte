@@ -111,9 +111,8 @@ The ten-maze obstacle course is:
 10. A rectangular room with one door, requiring the snake to enter and leave
     through the same opening.
 
-After level 10 the maze catalogue repeats while the displayed level and speed
-progression continue. Four rules keep the mazes fair, and all are covered by
-tests:
+Steering through the open exit after clearing level 10 completes the game and
+earns the trophy. Four rules keep the mazes fair, and all are covered by tests:
 
 - A corridor in front of the spawning snake is always left open.
 - Every open cell stays reachable, so food can never appear in a sealed pocket.
@@ -127,14 +126,19 @@ close around it.
 
 ## Trophy and automatic replay
 
-Every completed player game receives a three-second trophy presentation with
-the player's name, score, and highest level. The browser records the
-authoritative snapshots it receives during play, excluding paused time, then
-replays the run automatically at 2× speed. This is a recording of the real
-server result rather than a second simulation that could drift from it.
+The trophy is earned only by clearing all 10 levels and steering through the
+level-10 exit. Its three-second presentation includes the player's name and
+final score. A run that ends earlier receives a `GAME OVER` presentation
+instead.
 
-`NEW GAME` remains available throughout the trophy and replay and cancels the
-sequence immediately. If the player does nothing, the client calls
+The browser records authoritative snapshots continuously from the start of
+level 1, across every level transition, until victory or defeat. Paused time is
+excluded, then the complete successful or failed run is replayed automatically
+at 2× speed. This is a recording of the real server result rather than a second
+simulation that could drift from it.
+
+`NEW GAME` remains available throughout either result presentation and replay,
+and cancels the sequence immediately. If the player does nothing, the client calls
 `POST /game/home` when the replay finishes. The server stops any attract-mode
 game that may have started in the background and returns a fresh inactive state,
 allowing the browser to show the normal `READY?` screen.

@@ -33,6 +33,7 @@ interface GameState {
   started: boolean
   paused: boolean
   game_over: boolean
+  game_won: boolean
   demo_mode: boolean
 }
 
@@ -43,7 +44,7 @@ interface ReplayFrame {
 
 const CANVAS_WIDTH = 720
 const CANVAS_HEIGHT = 480
-const TROPHY_DURATION_MS = 3000
+const RESULT_PRESENTATION_MS = 3000
 const REPLAY_SPEED = 2
 const MAX_REPLAY_FRAMES = 20_000
 const DIRECTIONS: readonly Direction[] = ['up', 'right', 'down', 'left']
@@ -309,7 +310,7 @@ let replayFrames: ReplayFrame[] = []
 let replayActiveMilliseconds = 0
 let lastRecordedAt = 0
 let recordingPlayerGame = false
-let sequencePhase: 'none' | 'trophy' | 'replay' = 'none'
+let sequencePhase: 'none' | 'presentation' | 'replay' = 'none'
 let sequenceToken = 0
 let trophyTimer: number | null = null
 
@@ -409,6 +410,7 @@ function isGameState(value: unknown): value is GameState {
     typeof candidate.started === 'boolean' &&
     typeof candidate.paused === 'boolean' &&
     typeof candidate.game_over === 'boolean' &&
+    typeof candidate.game_won === 'boolean' &&
     typeof candidate.demo_mode === 'boolean'
   )
 }
@@ -536,7 +538,7 @@ function announce(game: GameState): void {
     sounds.doorOpen()
   }
   if (game.game_over && !lastGameOver) {
-    if (recordingPlayerGame && !game.demo_mode) {
+    if (recordingPlayerGame && game.game_won && !game.demo_mode) {
       sounds.trophy()
     } else {
       sounds.gameOver()
@@ -617,7 +619,10 @@ function render(game: GameState): void {
   } else if (!game.started) {
     showOverlay('READY?', 'Choose a snake speed, then press New Game')
   } else if (game.game_over) {
-    showOverlay('GAME OVER', `Scored ${game.score} — press New Game to retry`)
+    showOverlay(
+      game.game_won ? 'VICTORY!' : 'GAME OVER',
+      `Scored ${game.score} — press New Game to retry`,
+    )
   } else if (game.paused) {
     showOverlay('PAUSED', 'Press Space or Resume to continue')
   } else {
@@ -627,27 +632,37 @@ function render(game: GameState): void {
 
 function startCompletionSequence(finalGame: GameState): void {
   recordingPlayerGame = false
-  sequencePhase = 'trophy'
+  sequencePhase = 'presentation'
   const token = ++sequenceToken
   replayBadge.hidden = true
-  trophyIcon.hidden = false
-  overlay.classList.add('trophy-presentation')
-  showOverlay(
-    'TROPHY EARNED',
-    `${getPlayerName()} scored ${finalGame.score} and reached level ${finalGame.level}`,
-  )
-  instructions.textContent = 'Your 2× replay starts shortly — New Game is ready now'
+  trophyIcon.hidden = !finalGame.game_won
+  overlay.classList.toggle('trophy-presentation', finalGame.game_won)
+  if (finalGame.game_won) {
+    showOverlay(
+      'TROPHY EARNED',
+      `${getPlayerName()} completed all 10 levels with ${finalGame.score} points`,
+    )
+    instructions.textContent =
+      'Your complete 10-level replay starts shortly — New Game is ready now'
+  } else {
+    showOverlay(
+      'GAME OVER',
+      `${getPlayerName()} scored ${finalGame.score} and reached level ${finalGame.level}`,
+    )
+    instructions.textContent =
+      'Your 2× replay starts shortly — New Game is ready now'
+  }
   pauseButton.disabled = true
 
   const frames = replayFrames.slice()
   trophyTimer = window.setTimeout(() => {
     trophyTimer = null
     startReplay(frames, token)
-  }, TROPHY_DURATION_MS)
+  }, RESULT_PRESENTATION_MS)
 }
 
 function startReplay(frames: ReplayFrame[], token: number): void {
-  if (token !== sequenceToken || sequencePhase !== 'trophy') {
+  if (token !== sequenceToken || sequencePhase !== 'presentation') {
     return
   }
 

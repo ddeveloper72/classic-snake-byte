@@ -43,10 +43,13 @@ state without accumulating stale frames or affecting the game speed.
 
 For post-game replay, the browser records those authoritative snapshots against
 active-play time. Paused time is excluded, and playback renders the recording at
-2× without sending input or advancing the engine. Incoming demo snapshots are
-ignored during the trophy/replay sequence. On completion, `POST /game/home`
-resets the engine to a fresh inactive state; starting a new game cancels the
-sequence at any point.
+2× without sending input or advancing the engine. Recording continues across
+level-state replacements, so a victory replay contains levels 1 through 10.
+Incoming demo snapshots are ignored during the result/replay sequence. On
+completion, `POST /game/home` resets the engine to a fresh inactive state;
+starting a new game cancels the sequence at any point. Only the terminal
+level-10 exit sets `game_won` and earns the trophy; earlier collisions use the
+same replay path but retain the `GAME OVER` presentation.
 
 ## Speed and obstacles
 
@@ -64,11 +67,11 @@ demo mode, after game over, or once the exit door is open. A new level creates
 fresh state and therefore resets the timer.
 
 The domain layer selects one of ten handcrafted obstacle patterns and publishes
-it as a list of coordinates. Patterns repeat after level 10 while the level and
-speed continue rising. Two invariants are enforced where the layout is built,
-not in the renderer: the spawn corridor stays clear, and every open cell
-remains reachable. A layout applied mid-game subtracts the current snake body,
-so levelling up can never kill the player instantly.
+it as a list of coordinates. Clearing the tenth pattern is terminal victory.
+Two invariants are enforced where the layout is built, not in the renderer: the
+spawn corridor stays clear, and every open cell remains reachable. A layout
+applied mid-game subtracts the current snake body, so levelling up can never
+kill the player instantly.
 
 The state snapshot carries `foods` as a coordinate list because several apples
 can now coexist. The engine replenishes that list from one visible apple toward

@@ -170,10 +170,10 @@ def door_column(board: GameBoard) -> int:
 def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
     """Return one of ten intentional maze lessons.
 
-    The catalogue repeats after level 10, allowing an endless game without
-    inventing progressively less readable walls. Level 8 is a two-door
-    training room: it teaches entering, turning inside, and leaving a chamber
-    before level 10 removes the second escape route.
+    Level 8 is a two-door training room: it teaches entering, turning inside,
+    and leaving a chamber before level 10 removes the second escape route.
+    The modulo keeps this helper total for diagnostic callers, although normal
+    play ends in victory when the level-10 exit is used.
     """
 
     pattern = (max(1, level) - 1) % MAZE_COUNT + 1
@@ -331,6 +331,7 @@ class GameState:
     level_cleared: bool = False
     paused: bool = False
     game_over: bool = False
+    game_won: bool = False
     demo_mode: bool = False
 
 
@@ -573,7 +574,12 @@ class GameEngine:
             and next_head.y < 0
             and next_head.x == self.state.door_x
         ):
-            self._advance_level()
+            if self.state.level >= MAZE_COUNT:
+                self.state.level_cleared = True
+                self.state.game_won = True
+                self.state.game_over = True
+            else:
+                self._advance_level()
             return self.state
 
         eats_food = next_head in self.state.foods

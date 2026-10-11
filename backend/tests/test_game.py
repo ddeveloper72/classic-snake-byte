@@ -617,6 +617,24 @@ def test_leaving_through_the_open_door_advances_the_level() -> None:
     assert engine.state.speed_pressure_step == 0
 
 
+def test_leaving_level_ten_awards_victory_instead_of_level_eleven() -> None:
+    engine = GameEngine(seed=7)
+    engine.state.level = MAZE_COUNT
+    engine.state.door_x = door_column(engine.state.board)
+    engine.state.door_open = True
+    engine.state.apples_remaining = 0
+    engine.state.foods.clear()
+    engine.state.snake.body = [Position(engine.state.door_x, 0)]
+    engine.state.snake.direction = Direction.UP
+
+    engine.tick()
+
+    assert engine.state.level == MAZE_COUNT
+    assert engine.state.level_cleared is True
+    assert engine.state.game_won is True
+    assert engine.state.game_over is True
+
+
 def test_the_top_wall_still_kills_away_from_the_door() -> None:
     engine = GameEngine(seed=7)
     _eat_until_door_opens(engine)
