@@ -1,0 +1,30 @@
+[project]
+name = "snakebite"
+version = "0.1.0"
+description = "A modern, retro-inspired Snakebite game."
+readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.10",
+    "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-ra --strict-config"
+
+[tool.ruff]
+line-length = 88
+target-version = "py315"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
