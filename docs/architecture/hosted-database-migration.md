@@ -40,20 +40,23 @@ The application currently reads `DATABASE_URL` from environment variables or a l
 - Use Azure Key Vault, App Service environment variables, or a managed secret store in deployment.
 - Do not commit production credentials or database passwords to GitHub.
 
-## Demo mode and idle simulation plan
+## Demo mode and idle simulation
 
-The game should support a “demo” or idle loop when no player is actively interacting with the board.
+The game runs a server-authoritative demo after five seconds without an active
+game. Each demo starts at a randomly selected level from 1 through 5 and uses
+the same level-scaled tick interval as a player game.
 
-1. Add a `demo_mode` flag to the server state or game service.
-2. When no player input arrives for a configurable timeout, start a simulated controller that steers the snake toward food with simple heuristics.
-3. Randomize the initial level and target difficulty so the board appears more challenging over time.
-4. Allow the demo to stop when a player begins a real game and resume when the session becomes idle again.
+The simulated controller chooses safe directions toward food and introduces
+limited variation at higher levels. `demo_mode` is part of the authoritative
+state, so all clients show the same mode. Starting a game or using a gameplay
+control transfers control to the player and clears that state immediately.
+Completed demos are not written to the player leaderboard.
 
-The most maintainable first version is a lightweight autopilot that chooses the next safe direction toward food, with occasional randomized turns to avoid repetitive loops. This keeps the logic in the server/service layer rather than the browser client.
+The controller remains in the server service rather than the browser, which
+prevents clients from simulating different games.
 
 ## Recommended next implementation order
 
-1. Finish the difficulty progression model in the server and frontend.
-2. Add the player identity and score UI display.
-3. Implement demo-mode state transitions and idle detection.
-4. Prepare the hosted database adapter and environment configuration for production.
+1. Prepare the hosted database adapter and environment configuration for production.
+2. Add schema migrations for hosted deployments.
+3. Improve demo pathfinding if longer and more strategic runs are desired.

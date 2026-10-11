@@ -5,6 +5,7 @@ logic changes rather than random test data.
 """
 
 import asyncio
+from random import Random
 
 from backend.app.domain.game import Direction, GameBoard, GameEngine, Position
 from backend.app.services.game_loop import GameLoopService
@@ -73,5 +74,76 @@ def test_game_loop_can_launch_demo_mode() -> None:
         state = await service.start_demo_game()
         assert state.demo_mode is True
         assert 1 <= state.level <= 5
+
+    asyncio.run(run_test())
+
+
+def test_game_loop_automatically_starts_demo_after_idle_timeout() -> None:
+    async def run_test() -> None:
+        service = GameLoopService(
+            tick_interval=0.01,
+            idle_timeout=0,
+            random_source=Random(0),
+        )
+        signals = service.subscribe()
+        await service.start_loop()
+        try:
+            await asyncio.wait_for(signals.get(), timeout=0.5)
+            assert service.started is True
+            assert service.demo_mode is True
+            assert service.state.demo_mode is True
+            assert service.state.level == 4
+            assert service.state.score == 120
+        finally:
+            service.unsubscribe(signals)
+            await service.stop_loop()
+
+    asyncio.run(run_test())
+
+
+def test_pause_and_resume_take_over_authoritative_demo_state() -> None:
+    async def run_test() -> None:
+        service = GameLoopService()
+
+        for action in (service.pause, service.resume):
+            await service.start_demo_game()
+            state = await action()
+
+            assert service.demo_mode is False
+            assert state.demo_mode is False
+
+    asyncio.run(run_test())
+
+
+def test_demo_game_over_clears_authoritative_demo_state() -> None:
+    async def run_test() -> None:
+        service = GameLoopService(tick_interval=0.01, idle_timeout=60)
+        await service.start_demo_game()
+        service.state.game_over = True
+        signals = service.subscribe()
+        await service.start_loop()
+        try:
+            await asyncio.wait_for(signals.get(), timeout=0.5)
+            assert service.started is False
+            assert service.demo_mode is False
+            assert service.state.demo_mode is False
+        finally:
+            service.unsubscribe(signals)
+            await service.stop_loop()
+
+    asyncio.run(run_test())
+
+
+def test_player_turn_takes_over_authoritative_demo_state() -> None:
+    async def run_test() -> None:
+        service = GameLoopService()
+        await service.start_demo_game()
+
+        state = await service.turn(Direction.DOWN)
+
+        assert service.started is True
+        assert service.demo_mode is False
+        assert state.demo_mode is False
+        assert state.snake.direction is Direction.DOWN
 
     asyncio.run(run_test())

@@ -7,10 +7,10 @@ Learning note:
 """
 
 import asyncio
-import random
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from random import Random
 
 from backend.app.domain.game import Direction, GameEngine, GameState, Position
 
@@ -25,17 +25,21 @@ class GameLoopService:
         engine: GameEngine | None = None,
         tick_interval: float = 0.16,
         on_game_over: Callable[[GameState], Awaitable[None]] | None = None,
+        *,
+        idle_timeout: float = 5.0,
+        random_source: Random | None = None,
     ) -> None:
         if tick_interval <= 0:
             raise ValueError("tick_interval must be greater than zero")
+        if idle_timeout < 0:
+            raise ValueError("idle_timeout cannot be negative")
 
         self._engine = engine or GameEngine(base_tick_interval=tick_interval)
-        self._tick_interval = tick_interval
         self._on_game_over = on_game_over
         self._started = False
-        self._demo_mode = False
-        self._last_interaction = time.monotonic() - tick_interval
-        self._idle_timeout = 5.0
+        self._last_interaction = time.monotonic()
+        self._idle_timeout = idle_timeout
+        self._random = random_source or Random()
         self._lock = asyncio.Lock()
         self._subscribers: set[StateSignal] = set()
         self._task: asyncio.Task[None] | None = None
@@ -56,7 +60,7 @@ class GameLoopService:
     def demo_mode(self) -> bool:
         """Return whether the current game is being played by the idle demo."""
 
-        return self._demo_mode
+        return self.state.demo_mode
 
     def set_game_over_handler(
         self,
@@ -79,6 +83,8 @@ class GameLoopService:
         """Cancel and await the background timing task."""
 
         if self._task is None:
+            self._started = False
+            self.state.demo_mode = False
             return
 
         self._task.cancel()
@@ -86,16 +92,15 @@ class GameLoopService:
             await self._task
         self._task = None
         self._started = False
+        self.state.demo_mode = False
 
     async def start_game(self) -> GameState:
         """Reset the engine and enable autonomous movement."""
 
         async with self._lock:
             state = self._engine.reset()
-            state.demo_mode = False
             self._started = True
-            self._demo_mode = False
-            self._last_interaction = time.monotonic()
+            self._record_player_interaction()
             self._notify_subscribers()
             return state
 
@@ -103,21 +108,14 @@ class GameLoopService:
         """Launch an autonomous demo run at a randomly selected difficulty."""
 
         async with self._lock:
-            target_level = random.randint(1, 5)
-            state = self._engine.set_demo_level(target_level)
-            self._started = True
-            self._demo_mode = True
-            self._last_interaction = time.monotonic()
-            self._notify_subscribers()
-            return state
+            return self._start_demo_locked()
 
     async def turn(self, direction: Direction) -> GameState:
         """Apply a direction request to an active game."""
 
         async with self._lock:
             if self._started:
-                self._demo_mode = False
-                self._last_interaction = time.monotonic()
+                self._record_player_interaction()
                 self._engine.turn(direction)
                 self._notify_subscribers()
             return self.state
@@ -127,8 +125,7 @@ class GameLoopService:
 
         async with self._lock:
             if self._started:
-                self._demo_mode = False
-                self._last_interaction = time.monotonic()
+                self._record_player_interaction()
                 self._engine.pause()
                 self._notify_subscribers()
             return self.state
@@ -138,8 +135,7 @@ class GameLoopService:
 
         async with self._lock:
             if self._started:
-                self._demo_mode = False
-                self._last_interaction = time.monotonic()
+                self._record_player_interaction()
                 self._engine.resume()
                 self._notify_subscribers()
             return self.state
@@ -160,43 +156,52 @@ class GameLoopService:
         """Advance active games while scaling the pace by the level."""
 
         while True:
-            await asyncio.sleep(self._tick_interval)
+            await asyncio.sleep(self._engine.tick_interval)
             async with self._lock:
-                if not self._started and not self._demo_mode:
+                if not self._started:
                     if time.monotonic() - self._last_interaction >= self._idle_timeout:
-                        await self._start_demo_locked()
+                        self._start_demo_locked()
                     continue
 
                 state = self.state
                 if state.game_over:
                     self._started = False
-                    self._demo_mode = False
+                    state.demo_mode = False
+                    self._last_interaction = time.monotonic()
                     self._notify_subscribers()
                     continue
 
                 if state.paused:
                     continue
 
-                if self._demo_mode:
+                was_demo = self.demo_mode
+                if was_demo:
                     self._engine.turn(self._demo_direction())
 
                 self._engine.tick()
-                if self.state.game_over and self._on_game_over is not None:
-                    await self._on_game_over(self.state)
+                if self.state.game_over:
+                    if not was_demo and self._on_game_over is not None:
+                        await self._on_game_over(self.state)
                     self._started = False
-                    self._demo_mode = False
+                    self.state.demo_mode = False
+                    self._last_interaction = time.monotonic()
                 self._notify_subscribers()
 
-    async def _start_demo_locked(self) -> None:
+    def _start_demo_locked(self) -> GameState:
         """Start a random difficulty demo run while no human session is active."""
 
-        target_level = random.randint(1, 5)
+        target_level = self._random.randint(1, 5)
         state = self._engine.set_demo_level(target_level)
         self._started = True
-        self._demo_mode = True
         self._last_interaction = time.monotonic()
-        self.state.demo_mode = True
         self._notify_subscribers()
+        return state
+
+    def _record_player_interaction(self) -> None:
+        """Transfer control from demo mode and restart the idle timer."""
+
+        self.state.demo_mode = False
+        self._last_interaction = time.monotonic()
 
     def _demo_direction(self) -> Direction:
         """Choose the next safe turn for the autoplay routine."""
@@ -204,7 +209,11 @@ class GameLoopService:
         head = self.state.snake.head
         candidates: list[Direction] = []
         for direction in Direction:
-            if len(self.state.snake.body) > 1 and direction == self.state.snake.direction.opposite:
+            reverses_into_body = (
+                len(self.state.snake.body) > 1
+                and direction == self.state.snake.direction.opposite
+            )
+            if reverses_into_body:
                 continue
             dx, dy = direction.delta
             next_head = Position(head.x + dx, head.y + dy)
@@ -222,12 +231,12 @@ class GameLoopService:
             key=lambda direction: (
                 abs((head.x + direction.delta[0]) - self.state.food.x)
                 + abs((head.y + direction.delta[1]) - self.state.food.y),
-                random.random(),
+                self._random.random(),
             ),
         )
 
-        if self.state.level >= 3 and random.random() < 0.2:
-            return random.choice(scored[: min(2, len(scored))])
+        if self.state.level >= 3 and self._random.random() < 0.2:
+            return self._random.choice(scored[: min(2, len(scored))])
         return scored[0]
 
     def _notify_subscribers(self) -> None:

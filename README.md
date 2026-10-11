@@ -5,6 +5,7 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Python 3.15 and FastAPI backend
 - Framework-independent, typed game engine
 - Autonomous server game loop and authoritative WebSocket broadcasts
+- Idle demo autoplay at randomized difficulty levels
 - TypeScript, Vite, and Canvas browser client
 - Keyboard and touch-friendly controls
 - SQLite game, player, and score persistence
@@ -51,8 +52,7 @@ cd frontend
 npm run build
 ```
 
-Difficulty progression, richer player identity, and hosted database support
-are the next vertical slices. See
+Hosted database support is the next planned infrastructure slice. See
 [`docs/architecture/overview.md`](docs/architecture/overview.md).
 Project Goal
 
