@@ -7,6 +7,7 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Autonomous server game loop and authoritative WebSocket broadcasts
 - TypeScript, Vite, and Canvas browser client
 - Keyboard and touch-friendly controls
+- SQLite game, player, and score persistence
 - Pytest and Ruff development tooling
 - Architecture and learning notes in `docs/`
 
@@ -21,6 +22,11 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -m uvicorn backend.app.main:app --reload
 ```
+
+The backend uses local SQLite by default at `data/snakebite.db`. To customize
+it, copy `.env.example` to `.env` and edit the values. `.env` and local
+database files are ignored by Git; only `.env.example` belongs in the
+repository. SQLite does not require a database password.
 
 In a second terminal, install and run the frontend:
 
@@ -45,8 +51,8 @@ cd frontend
 npm run build
 ```
 
-SQLite repositories, score persistence, and difficulty progression are the
-next vertical slices. See
+Difficulty progression, richer player identity, and hosted database support
+are the next vertical slices. See
 [`docs/architecture/overview.md`](docs/architecture/overview.md).
 Project Goal
 

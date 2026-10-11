@@ -12,7 +12,8 @@ flowchart LR
     API --> Loop[GameLoopService]
     Loop --> Engine[GameEngine]
     Engine --> Domain[Snake, Board, Rules]
-    API -. future .-> Repository[SQLite repositories]
+    API --> Persistence[SQLite repositories]
+    Persistence --> Schema[(players / games / scores)]
 ```
 
 ## Boundaries
@@ -21,7 +22,8 @@ flowchart LR
 - `backend/app/models`: Pydantic request and response schemas.
 - `backend/app/api`: HTTP and WebSocket transport.
 - `backend/app/services`: async game timing and observer coordination.
-- `backend/app/repositories`: reserved for SQLite persistence in the next slice.
+- `backend/app/repositories`: async SQLite connection and schema boundary.
+- `backend/app/services/persistence.py`: game lifecycle and leaderboard writes.
 - `backend/tests`: domain and adapter tests.
 - `frontend/src/main.ts`: browser state synchronization, controls, and rendering.
 - `frontend/vite.config.ts`: development proxy from the browser to FastAPI.
@@ -49,6 +51,11 @@ helping the first playable version.
 The application service uses an async lock to serialize player input and timed
 movement. It publishes lightweight signals rather than importing WebSocket
 types, preserving the boundary between coordination and transport.
+
+SQLite is intentionally local for this phase. `DATABASE_URL` is loaded from
+the environment or an ignored `.env` file, and the default local database has
+no credentials. A future managed database can use the same setting without
+putting secrets in source control.
 
 Canvas is used instead of a frontend game framework because the game is a small
 fixed grid with no physics, scene graph, or asset pipeline. This makes the

@@ -7,6 +7,7 @@ Learning note:
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
 from backend.app.domain.game import Direction, GameEngine, GameState
@@ -21,12 +22,14 @@ class GameLoopService:
         self,
         engine: GameEngine | None = None,
         tick_interval: float = 0.16,
+        on_game_over: Callable[[GameState], Awaitable[None]] | None = None,
     ) -> None:
         if tick_interval <= 0:
             raise ValueError("tick_interval must be greater than zero")
 
         self._engine = engine or GameEngine()
         self._tick_interval = tick_interval
+        self._on_game_over = on_game_over
         self._started = False
         self._lock = asyncio.Lock()
         self._subscribers: set[StateSignal] = set()
@@ -43,6 +46,14 @@ class GameLoopService:
         """Return whether the current state belongs to a started game."""
 
         return self._started
+
+    def set_game_over_handler(
+        self,
+        handler: Callable[[GameState], Awaitable[None]],
+    ) -> None:
+        """Register persistence or analytics work for completed games."""
+
+        self._on_game_over = handler
 
     async def start_loop(self) -> None:
         """Start the background timing task once per application lifecycle."""
@@ -124,6 +135,9 @@ class GameLoopService:
                     continue
 
                 self._engine.tick()
+                if self.state.game_over and self._on_game_over is not None:
+                    await self._on_game_over(self.state)
+                    self._started = False
                 self._notify_subscribers()
 
     def _notify_subscribers(self) -> None:

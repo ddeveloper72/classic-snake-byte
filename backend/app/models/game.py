@@ -11,6 +11,14 @@ from pydantic import BaseModel, ConfigDict
 from backend.app.domain.game import Direction, GameState
 
 
+class ScoreResponse(BaseModel):
+    """A completed score suitable for the public leaderboard."""
+
+    name: str
+    score: int
+    created_at: str
+
+
 class InputRequest(BaseModel):
     """A player request to change the snake's direction."""
 
