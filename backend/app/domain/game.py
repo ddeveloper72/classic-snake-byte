@@ -109,6 +109,7 @@ class GameState:
     snake: Snake
     food: Position
     score: int = 0
+    level: int = 1
     paused: bool = False
     game_over: bool = False
 
@@ -124,10 +125,30 @@ class GameEngine:
     adapters can serialize the result without duplicating game rules.
     """
 
-    def __init__(self, board: GameBoard | None = None, seed: int | None = None):
+    def __init__(
+        self,
+        board: GameBoard | None = None,
+        seed: int | None = None,
+        *,
+        base_tick_interval: float = 0.16,
+    ):
         self._board = board or GameBoard()
         self._random = Random(seed)
+        self._base_tick_interval = base_tick_interval
         self.state = self._new_state()
+
+    @property
+    def level(self) -> int:
+        """Return the current game difficulty band based on score."""
+
+        return max(1, self.state.score // 40 + 1)
+
+    @property
+    def tick_interval(self) -> float:
+        """Return the active speed for this level."""
+
+        level = self.level
+        return max(0.08, self._base_tick_interval - (level - 1) * 0.015)
 
     def _new_state(self) -> GameState:
         """Build the standard three-segment starting state."""
@@ -136,7 +157,7 @@ class GameEngine:
         snake = Snake(
             [center, Position(center.x - 1, center.y), Position(center.x - 2, center.y)]
         )
-        state = GameState(self._board, snake, center)
+        state = GameState(self._board, snake, center, level=1)
         state.food = self._spawn_food(state)
         return state
 
@@ -190,9 +211,11 @@ class GameEngine:
         self.state.snake.body.insert(0, next_head)
         if eats_food:
             self.state.score += 10
+            self.state.level = self.level
             self.state.food = self._spawn_food(self.state)
         else:
             self.state.snake.body.pop()
+        self.state.level = self.level
         return self.state
 
     def _spawn_food(self, state: GameState) -> Position:

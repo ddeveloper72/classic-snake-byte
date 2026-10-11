@@ -36,6 +36,7 @@ class GameStateResponse(BaseModel):
     food: tuple[int, int]
     direction: Direction
     score: int
+    level: int
     started: bool
     paused: bool
     game_over: bool
@@ -51,6 +52,7 @@ class GameStateResponse(BaseModel):
             food=(state.food.x, state.food.y),
             direction=state.snake.direction,
             score=state.score,
+            level=state.level,
             started=started,
             paused=state.paused,
             game_over=state.game_over,

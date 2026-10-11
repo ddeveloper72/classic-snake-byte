@@ -18,6 +18,7 @@ interface GameState {
   food: [number, number]
   direction: Direction
   score: number
+  level: number
   started: boolean
   paused: boolean
   game_over: boolean
@@ -35,8 +36,18 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <h1>SNAKEBITE</h1>
       </div>
       <div class="score-panel" aria-live="polite">
-        <span>SCORE</span>
-        <strong id="score">000000</strong>
+        <div class="score-box">
+          <span>PLAYER</span>
+          <strong id="player-name">PLAYER</strong>
+        </div>
+        <div class="score-box">
+          <span>SCORE</span>
+          <strong id="score">000000</strong>
+        </div>
+        <div class="score-box">
+          <span>LEVEL</span>
+          <strong id="level">1</strong>
+        </div>
       </div>
     </header>
 
@@ -82,6 +93,8 @@ if (context === null) {
 }
 
 const score = requireElement<HTMLElement>('#score')
+const level = requireElement<HTMLElement>('#level')
+const playerName = requireElement<HTMLElement>('#player-name')
 const overlay = requireElement<HTMLElement>('#overlay')
 const overlayTitle = requireElement<HTMLElement>('#overlay-title')
 const overlayMessage = requireElement<HTMLElement>('#overlay-message')
@@ -168,6 +181,8 @@ function isGameState(value: unknown): value is GameState {
     DIRECTIONS.includes(candidate.direction as Direction) &&
     Number.isInteger(candidate.score) &&
     Number(candidate.score) >= 0 &&
+    Number.isInteger(candidate.level) &&
+    Number(candidate.level) >= 1 &&
     typeof candidate.started === 'boolean' &&
     typeof candidate.paused === 'boolean' &&
     typeof candidate.game_over === 'boolean'
@@ -226,6 +241,8 @@ function render(game: GameState): void {
   })
 
   score.textContent = game.score.toString().padStart(6, '0')
+  level.textContent = game.level.toString()
+  playerName.textContent = getPlayerName()
   pauseButton.disabled = !game.started || game.game_over
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
@@ -271,6 +288,22 @@ function drawCell(
     width - inset * 2,
     height - inset * 2,
   )
+}
+
+function getPlayerName(): string {
+  const candidate = window.localStorage.getItem('snakebite.player-name')
+  if (candidate !== null && candidate.trim() !== '') {
+    return candidate.trim()
+  }
+  const defaultName = 'PLAYER'
+  window.localStorage.setItem('snakebite.player-name', defaultName)
+  return defaultName
+}
+
+function setPlayerName(name: string): void {
+  const nextName = name.trim() || 'PLAYER'
+  window.localStorage.setItem('snakebite.player-name', nextName)
+  playerName.textContent = nextName
 }
 
 function showOverlay(title: string, message: string): void {
@@ -336,6 +369,11 @@ async function togglePause(): Promise<void> {
   } catch (error) {
     showClientError(error)
   }
+}
+
+const namePrompt = window.prompt('Choose a player name', getPlayerName())
+if (namePrompt !== null) {
+  setPlayerName(namePrompt)
 }
 
 window.addEventListener('beforeunload', () => {

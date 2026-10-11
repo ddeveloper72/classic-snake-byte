@@ -97,24 +97,32 @@ h1 {
 }
 
 .score-panel {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 8.4rem;
-  padding: 0.65rem 0.9rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0.6rem 0.9rem;
   border: 1px solid #255f34;
   background: rgba(4, 20, 10, 0.88);
   text-align: right;
 }
 
+.score-box {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 5.6rem;
+}
+
 .score-panel span {
   color: #5caf70;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   letter-spacing: 0.18em;
 }
 
 .score-panel strong {
   color: #ffb000;
-  font-size: clamp(1.35rem, 4vw, 2rem);
+  font-size: clamp(1.2rem, 2vw, 1.9rem);
   font-weight: 400;
   letter-spacing: 0.08em;
   text-shadow: 0 0 12px rgba(255, 176, 0, 0.4);

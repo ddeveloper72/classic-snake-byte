@@ -27,7 +27,7 @@ class GameLoopService:
         if tick_interval <= 0:
             raise ValueError("tick_interval must be greater than zero")
 
-        self._engine = engine or GameEngine()
+        self._engine = engine or GameEngine(base_tick_interval=tick_interval)
         self._tick_interval = tick_interval
         self._on_game_over = on_game_over
         self._started = False
@@ -125,10 +125,10 @@ class GameLoopService:
         self._subscribers.discard(signals)
 
     async def _run(self) -> None:
-        """Advance active games at the configured interval."""
+        """Advance active games while scaling the pace by the level."""
 
         while True:
-            await asyncio.sleep(self._tick_interval)
+            await asyncio.sleep(self._engine.tick_interval)
             async with self._lock:
                 state = self.state
                 if not self._started or state.paused or state.game_over:

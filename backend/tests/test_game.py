@@ -42,4 +42,13 @@ def test_eating_food_increases_score_and_length() -> None:
     engine.tick()
 
     assert engine.state.score == 10
+    assert engine.state.level == 1
     assert len(engine.state.snake.body) == 4
+
+
+def test_level_rises_as_score_increases() -> None:
+    engine = GameEngine(seed=1)
+    engine.state.score = 80
+
+    assert engine.level == 3
+    assert engine.tick_interval == 0.13
