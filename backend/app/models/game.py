@@ -57,13 +57,19 @@ class GameStateResponse(BaseModel):
     width: int
     height: int
     snake: list[tuple[int, int]]
-    food: tuple[int, int]
+    food: tuple[int, int] | None
     obstacles: list[tuple[int, int]]
     plums: list[tuple[int, int]]
     plum_bounced: bool
     direction: Direction
     score: int
     level: int
+    # Apples left before the exit door unlocks; the door is the only route to
+    # the next level.
+    apples_remaining: int
+    door_open: bool
+    door_x: int
+    level_cleared: bool
     difficulty: int
     started: bool
     paused: bool
@@ -78,7 +84,7 @@ class GameStateResponse(BaseModel):
             width=state.board.width,
             height=state.board.height,
             snake=[(part.x, part.y) for part in state.snake.body],
-            food=(state.food.x, state.food.y),
+            food=None if state.food is None else (state.food.x, state.food.y),
             # Sorted so repeated snapshots of one layout are byte-identical.
             obstacles=sorted((cell.x, cell.y) for cell in state.obstacles),
             # Plum order is preserved rather than sorted so a client can keep
@@ -88,6 +94,10 @@ class GameStateResponse(BaseModel):
             direction=state.snake.direction,
             score=state.score,
             level=state.level,
+            apples_remaining=state.apples_remaining,
+            door_open=state.door_open,
+            door_x=state.door_x,
+            level_cleared=state.level_cleared,
             difficulty=state.difficulty,
             started=started,
             paused=state.paused,

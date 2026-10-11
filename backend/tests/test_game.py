@@ -8,6 +8,7 @@ import asyncio
 from random import Random
 
 from backend.app.domain.game import (
+    APPLES_PER_LEVEL,
     MAX_DIFFICULTY,
     MAX_PLUMS,
     MIN_DIFFICULTY,
@@ -18,6 +19,7 @@ from backend.app.domain.game import (
     Plum,
     Position,
     build_obstacles,
+    door_column,
     spawn_corridor,
 )
 from backend.app.services.game_loop import GameLoopService
@@ -62,9 +64,15 @@ def test_eating_food_increases_score_and_length() -> None:
     assert len(engine.state.snake.body) == 4
 
 
-def test_level_rises_as_score_increases() -> None:
+def test_level_does_not_rise_from_score_alone() -> None:
+    """Eating must never skip the exit door the player has to steer through."""
+
     engine = GameEngine(seed=1, difficulty=3)
     engine.state.score = 80
+
+    assert engine.level == 1
+
+    engine.state.level = 3
 
     assert engine.level == 3
     assert engine.tick_interval < SECONDS_PER_CELL[3]
@@ -91,7 +99,7 @@ def test_difficulty_is_clamped_to_supported_range() -> None:
 
 def test_gentle_difficulty_never_outruns_its_floor() -> None:
     engine = GameEngine(seed=1, difficulty=MIN_DIFFICULTY)
-    engine.state.score = 10_000
+    engine.state.level = 100
 
     floor = SECONDS_PER_CELL[MIN_DIFFICULTY] * 0.6
 
@@ -383,3 +391,135 @@ def test_player_turn_takes_over_authoritative_demo_state() -> None:
         assert state.snake.direction is Direction.DOWN
 
     asyncio.run(run_test())
+
+
+def _eat_until_door_opens(engine: GameEngine) -> None:
+    """Teleport food onto the head's next cell until the apple quota clears."""
+
+    while engine.state.apples_remaining > 0:
+        engine.state.food = engine.state.snake.next_head()
+        engine.tick()
+
+
+def test_door_stays_shut_until_the_apple_quota_is_cleared() -> None:
+    engine = GameEngine(seed=7)
+
+    assert engine.state.apples_remaining == APPLES_PER_LEVEL
+    assert engine.state.door_open is False
+
+    engine.state.food = engine.state.snake.next_head()
+    engine.tick()
+
+    assert engine.state.apples_remaining == APPLES_PER_LEVEL - 1
+    assert engine.state.door_open is False
+    assert engine.state.food is not None
+
+
+def test_clearing_the_quota_opens_the_door_and_stops_the_apples() -> None:
+    engine = GameEngine(seed=7)
+
+    _eat_until_door_opens(engine)
+
+    assert engine.state.door_open is True
+    assert engine.state.food is None
+    assert engine.state.level == 1
+
+
+def test_leaving_through_the_open_door_advances_the_level() -> None:
+    engine = GameEngine(seed=7)
+    _eat_until_door_opens(engine)
+
+    score_before = engine.state.score
+    engine.state.snake.body = [Position(engine.state.door_x, 0)]
+    engine.state.snake.direction = Direction.UP
+    engine.tick()
+
+    assert engine.state.game_over is False
+    assert engine.state.level == 2
+    assert engine.state.level_cleared is True
+    assert engine.state.score == score_before
+    assert engine.state.door_open is False
+    assert engine.state.apples_remaining == APPLES_PER_LEVEL
+    assert engine.state.food is not None
+
+
+def test_the_top_wall_still_kills_away_from_the_door() -> None:
+    engine = GameEngine(seed=7)
+    _eat_until_door_opens(engine)
+
+    off_door_x = (engine.state.door_x + 3) % engine.state.board.width
+    engine.state.snake.body = [Position(off_door_x, 0)]
+    engine.state.snake.direction = Direction.UP
+    engine.tick()
+
+    assert engine.state.game_over is True
+    assert engine.state.level == 1
+
+
+def test_a_shut_door_is_not_an_exit() -> None:
+    engine = GameEngine(seed=7)
+
+    assert engine.state.door_open is False
+
+    engine.state.snake.body = [Position(engine.state.door_x, 0)]
+    engine.state.snake.direction = Direction.UP
+    engine.tick()
+
+    assert engine.state.game_over is True
+    assert engine.state.level == 1
+
+
+def test_the_door_moves_between_levels() -> None:
+    board = GameBoard()
+    columns = {door_column(board, level) for level in range(1, 9)}
+
+    assert len(columns) > 1
+    for level in range(1, 9):
+        assert 0 <= door_column(board, level) < board.width
+
+
+def test_the_door_is_never_buried_in_a_wall() -> None:
+    board = GameBoard()
+    for level in range(1, 9):
+        walls = build_obstacles(board, level)
+        assert Position(door_column(board, level), 0) not in walls
+
+
+def test_every_maze_wall_has_a_doorway() -> None:
+    """Each level's walls must be rooms to walk into, not sealed barriers."""
+
+    board = GameBoard()
+    center_y = board.height // 2
+    left = 4
+    right = board.width - 5
+    top = center_y - 4
+    bottom = center_y + 4
+
+    for level in range(2, 9):
+        walls = build_obstacles(board, level)
+        top_rail = [x for x in range(left, right + 1) if Position(x, top) in walls]
+        bottom_rail = [
+            x for x in range(left, right + 1) if Position(x, bottom) in walls
+        ]
+
+        assert len(top_rail) < right - left + 1
+        assert len(bottom_rail) < right - left + 1
+
+        if level >= 3:
+            side = [y for y in range(top, bottom + 1) if Position(left, y) in walls]
+            assert len(side) < bottom - top + 1
+
+
+def test_advancing_a_level_resets_the_snake_to_a_safe_length() -> None:
+    engine = GameEngine(seed=11)
+    engine.state.level = 4
+    _eat_until_door_opens(engine)
+
+    engine.state.snake.body = [Position(engine.state.door_x, 0)]
+    engine.state.snake.direction = Direction.UP
+    engine.tick()
+
+    assert engine.state.level == 5
+    assert len(engine.state.snake.body) == 3
+    # The brand-new level 5 maze must not have been laid on top of the snake.
+    assert not set(engine.state.snake.body) & engine.state.obstacles

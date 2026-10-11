@@ -16,7 +16,11 @@ interface GameState {
   width: number
   height: number
   snake: [number, number][]
-  food: [number, number]
+  food: [number, number] | null
+  apples_remaining: number
+  door_open: boolean
+  door_x: number
+  level_cleared: boolean
   obstacles: [number, number][]
   plums: [number, number][]
   plum_bounced: boolean
@@ -71,6 +75,60 @@ const PLUM_OPTIONS: readonly { value: number; label: string; hint: string }[] = 
 const DEFAULT_PLUMS = 0
 const PLUMS_STORAGE_KEY = 'snakebite.plums'
 
+/**
+ * The keyboard layouts a player can choose between.
+ *
+ * Learning note:
+ * Arrow keys suit one-handed play, while WASD suits players who rest their
+ * left hand on the keyboard. Neither is correct for everyone, so the scheme is
+ * a stored preference rather than a hard-coded assumption.
+ */
+type ControlScheme = 'arrows' | 'wasd' | 'both'
+
+const CONTROL_SCHEMES: readonly {
+  value: ControlScheme
+  label: string
+  keys: string
+  hint: string
+}[] = [
+  {
+    value: 'arrows',
+    label: 'ARROWS',
+    keys: '▲ ◀ ▼ ▶',
+    hint: 'Steer with the arrow keys only',
+  },
+  {
+    value: 'wasd',
+    label: 'WASD',
+    keys: 'W A S D',
+    hint: 'W up, A left, S down, D right',
+  },
+  {
+    value: 'both',
+    label: 'EITHER',
+    keys: '▲ + W',
+    hint: 'Arrow keys and WASD both steer the snake',
+  },
+]
+
+const DEFAULT_CONTROLS: ControlScheme = 'both'
+const CONTROLS_STORAGE_KEY = 'snakebite.controls'
+
+/** The direction each key produces, split by the scheme that owns it. */
+const ARROW_KEYS: Readonly<Record<string, Direction>> = {
+  arrowup: 'up',
+  arrowright: 'right',
+  arrowdown: 'down',
+  arrowleft: 'left',
+}
+
+const WASD_KEYS: Readonly<Record<string, Direction>> = {
+  w: 'up',
+  d: 'right',
+  s: 'down',
+  a: 'left',
+}
+
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <main class="shell">
     <header class="masthead">
@@ -91,10 +149,14 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <span>LEVEL</span>
           <strong id="level">1</strong>
         </div>
+        <div class="score-box">
+          <span>APPLES</span>
+          <strong id="apples">4</strong>
+        </div>
       </div>
     </header>
 
-    <section class="game-frame" aria-label="Snakebite game">
+    <section class="game-frame" id="game-frame" aria-label="Snakebite game">
       <canvas
         id="game"
         width="${CANVAS_WIDTH}"
@@ -148,6 +210,26 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <p id="plums-hint" class="difficulty-hint" aria-live="polite"></p>
       </fieldset>
 
+      <fieldset class="difficulty">
+        <legend>Controls</legend>
+        <div class="difficulty-options" role="radiogroup" aria-label="Control scheme">
+          ${CONTROL_SCHEMES.map(
+            (option) => `
+            <label class="difficulty-option">
+              <input
+                type="radio"
+                name="controls"
+                value="${option.value}"
+                title="${option.hint}"
+              />
+              <span class="difficulty-number control-keys">${option.keys}</span>
+              <span class="difficulty-label">${option.label}</span>
+            </label>`,
+          ).join('')}
+        </div>
+        <p id="controls-hint" class="difficulty-hint" aria-live="polite"></p>
+      </fieldset>
+
       <div class="button-row">
         <button id="start" class="primary" type="button">NEW GAME</button>
         <button id="pause" type="button" disabled>PAUSE</button>
@@ -159,7 +241,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <button type="button" data-direction="down" aria-label="Move down">▼</button>
         <button type="button" data-direction="right" aria-label="Move right">▶</button>
       </div>
-      <p class="instructions">
+      <p class="instructions" id="instructions" aria-live="polite">
         Arrow keys or WASD to steer <span aria-hidden="true">•</span>
         Space to pause
       </p>
@@ -171,6 +253,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 `
 
 const canvas = requireElement<HTMLCanvasElement>('#game')
+const gameFrame = requireElement<HTMLElement>('#game-frame')
 const context = canvas.getContext('2d')
 if (context === null) {
   throw new Error('This browser does not support the Canvas 2D API.')
@@ -178,6 +261,8 @@ if (context === null) {
 
 const score = requireElement<HTMLElement>('#score')
 const level = requireElement<HTMLElement>('#level')
+const apples = requireElement<HTMLElement>('#apples')
+const instructions = requireElement<HTMLElement>('#instructions')
 const playerName = requireElement<HTMLButtonElement>('#player-name')
 const overlay = requireElement<HTMLElement>('#overlay')
 const overlayTitle = requireElement<HTMLElement>('#overlay-title')
@@ -188,6 +273,7 @@ const pauseButton = requireElement<HTMLButtonElement>('#pause')
 const soundButton = requireElement<HTMLButtonElement>('#sound')
 const difficultyHint = requireElement<HTMLElement>('#difficulty-hint')
 const plumsHint = requireElement<HTMLElement>('#plums-hint')
+const controlsHint = requireElement<HTMLElement>('#controls-hint')
 
 const sounds = new SoundBoard()
 
@@ -197,6 +283,7 @@ let reconnectTimer: number | null = null
 /** Previous snapshot values, used to detect the moments worth sounding. */
 let lastScore = 0
 let lastLevel = 1
+let lastDoorOpen = false
 let lastGameOver = false
 
 function requireElement<T extends Element>(selector: string): T {
@@ -270,7 +357,11 @@ function isGameState(value: unknown): value is GameState {
     Array.isArray(candidate.snake) &&
     candidate.snake.length > 0 &&
     candidate.snake.every(isCoordinate) &&
-    isCoordinate(candidate.food) &&
+    (candidate.food === null || isCoordinate(candidate.food)) &&
+    typeof candidate.apples_remaining === 'number' &&
+    typeof candidate.door_open === 'boolean' &&
+    typeof candidate.door_x === 'number' &&
+    typeof candidate.level_cleared === 'boolean' &&
     Array.isArray(candidate.obstacles) &&
     candidate.obstacles.every(isCoordinate) &&
     Array.isArray(candidate.plums) &&
@@ -343,8 +434,11 @@ function announce(game: GameState): void {
   if (game.score > lastScore) {
     sounds.eat()
   }
-  if (game.level > lastLevel) {
+  if (game.level_cleared || game.level > lastLevel) {
     sounds.levelUp()
+  }
+  if (game.door_open && !lastDoorOpen && !game.game_over) {
+    sounds.doorOpen()
   }
   if (game.game_over && !lastGameOver) {
     sounds.gameOver()
@@ -355,6 +449,7 @@ function announce(game: GameState): void {
 
   lastScore = game.score
   lastLevel = game.level
+  lastDoorOpen = game.door_open
   lastGameOver = game.game_over
 }
 
@@ -372,7 +467,11 @@ function render(game: GameState): void {
     drawWall(wall, cellWidth, cellHeight)
   })
 
-  drawApple(game.food, cellWidth, cellHeight)
+  drawTopWall(game, cellWidth, cellHeight)
+
+  if (game.food !== null) {
+    drawApple(game.food, cellWidth, cellHeight)
+  }
   drawSnake(game, cellWidth, cellHeight)
   // Plums are drawn last so a plum crossing the snake stays visible.
   game.plums.forEach((plum) => {
@@ -381,7 +480,16 @@ function render(game: GameState): void {
 
   score.textContent = game.score.toString().padStart(6, '0')
   level.textContent = game.level.toString()
+  apples.textContent = game.door_open ? 'EXIT' : game.apples_remaining.toString()
   playerName.textContent = getPlayerName()
+
+  // The door is easy to miss mid-game, so the hint line calls it out directly.
+  if (game.door_open && !game.game_over) {
+    instructions.textContent =
+      'Apples cleared — escape through the glowing door in the top wall!'
+  } else {
+    instructions.textContent = steeringHint()
+  }
   pauseButton.disabled = !game.started || game.game_over
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
@@ -415,6 +523,60 @@ function drawWall(
   context.fillRect(x * width, y * height, width, height)
   context.fillStyle = 'rgba(120, 170, 255, 0.45)'
   context.fillRect(x * width, y * height, width, Math.max(1, height * 0.2))
+}
+
+/**
+ * Draw the top wall and, once the apple quota is cleared, the exit door in it.
+ *
+ * Learning note:
+ * The door is the only route to the next level, so it is drawn as a literal
+ * break in a solid wall with an arrow through it. Players should be able to
+ * see where to go without reading any instructions.
+ */
+function drawTopWall(
+  game: GameState,
+  cellWidth: number,
+  cellHeight: number,
+): void {
+  const thickness = Math.max(3, cellHeight * 0.22)
+  const doorLeft = game.door_x * cellWidth
+  const open = game.door_open
+
+  context.fillStyle = '#2f7a4a'
+  if (open) {
+    context.fillRect(0, 0, doorLeft, thickness)
+    context.fillRect(
+      doorLeft + cellWidth,
+      0,
+      canvas.width - doorLeft - cellWidth,
+      thickness,
+    )
+  } else {
+    context.fillRect(0, 0, canvas.width, thickness)
+  }
+
+  if (!open) {
+    return
+  }
+
+  // A pulsing glow makes the gap unmistakable against the grid behind it.
+  const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 180)
+  context.save()
+  context.fillStyle = '#7dffb0'
+  context.globalAlpha = pulse
+  context.fillRect(doorLeft, 0, cellWidth, thickness)
+
+  const centerX = doorLeft + cellWidth / 2
+  context.strokeStyle = '#7dffb0'
+  context.lineWidth = Math.max(2, cellWidth * 0.14)
+  context.beginPath()
+  context.moveTo(centerX, cellHeight * 1.5)
+  context.lineTo(centerX, thickness + 2)
+  context.moveTo(centerX - cellWidth * 0.3, cellHeight * 0.55)
+  context.lineTo(centerX, thickness + 2)
+  context.lineTo(centerX + cellWidth * 0.3, cellHeight * 0.55)
+  context.stroke()
+  context.restore()
 }
 
 /** Draw the food as a round apple with a stem, as the original did. */
@@ -635,6 +797,78 @@ function setPlums(value: number): void {
     })
 }
 
+/** Read the stored control scheme, falling back when storage holds junk. */
+function getControlScheme(): ControlScheme {
+  const stored = window.localStorage.getItem(CONTROLS_STORAGE_KEY)
+  if (CONTROL_SCHEMES.some((option) => option.value === stored)) {
+    return stored as ControlScheme
+  }
+  return DEFAULT_CONTROLS
+}
+
+/** Persist the control scheme and sync the radios, hint and help text. */
+function setControlScheme(value: ControlScheme): void {
+  const option =
+    CONTROL_SCHEMES.find((entry) => entry.value === value) ?? CONTROL_SCHEMES[0]
+  window.localStorage.setItem(CONTROLS_STORAGE_KEY, option.value)
+  controlsHint.textContent = `${option.label} — ${option.hint}`
+
+  document
+    .querySelectorAll<HTMLInputElement>('input[name="controls"]')
+    .forEach((input) => {
+      input.checked = input.value === option.value
+    })
+
+  instructions.textContent = steeringHint()
+}
+
+/**
+ * Resolve a keyboard event to a direction under the active scheme.
+ *
+ * Learning note:
+ * The key is lower-cased first so Caps Lock or a held Shift cannot silently
+ * disable WASD steering, which is a classic and very frustrating bug.
+ */
+function directionForKey(key: string): Direction | undefined {
+  const normalized = key.toLowerCase()
+  const scheme = getControlScheme()
+  if (scheme !== 'wasd' && normalized in ARROW_KEYS) {
+    return ARROW_KEYS[normalized]
+  }
+  if (scheme !== 'arrows' && normalized in WASD_KEYS) {
+    return WASD_KEYS[normalized]
+  }
+  return undefined
+}
+
+/** Describe the steering keys the player actually chose. */
+function steeringHint(): string {
+  const scheme = getControlScheme()
+  if (scheme === 'wasd') {
+    return 'W A S D to steer • Space to pause'
+  }
+  if (scheme === 'arrows') {
+    return 'Arrow keys to steer • Space to pause'
+  }
+  return 'Arrow keys or WASD to steer • Space to pause'
+}
+
+/**
+ * Bring the board into view so play starts where the player is looking.
+ *
+ * Learning note:
+ * On short windows the controls push the canvas above the fold, so a player
+ * pressing New Game would be steering a snake they cannot see. Centring the
+ * board removes that whole class of confusion.
+ */
+function focusGameBoard(): void {
+  const stillness = window.matchMedia('(prefers-reduced-motion: reduce)')
+  gameFrame.scrollIntoView({
+    behavior: stillness.matches ? 'auto' : 'smooth',
+    block: 'center',
+  })
+}
+
 function setSoundEnabled(enabled: boolean): void {
   sounds.setEnabled(enabled)
   window.localStorage.setItem(SOUND_STORAGE_KEY, enabled ? 'on' : 'off')
@@ -690,19 +924,8 @@ function showClientError(error: unknown): void {
   showOverlay('CLIENT ERROR', message)
 }
 
-const keyDirections: Readonly<Record<string, Direction>> = {
-  ArrowUp: 'up',
-  w: 'up',
-  ArrowRight: 'right',
-  d: 'right',
-  ArrowDown: 'down',
-  s: 'down',
-  ArrowLeft: 'left',
-  a: 'left',
-}
-
 window.addEventListener('keydown', (event) => {
-  const direction = keyDirections[event.key]
+  const direction = directionForKey(event.key)
   if (direction !== undefined) {
     event.preventDefault()
     turn(direction)
@@ -724,6 +947,7 @@ startButton.addEventListener('click', () => {
   // Audio must be unlocked inside a real user gesture before any cue is heard.
   sounds.unlock()
   sounds.start()
+  focusGameBoard()
   void postGameAction('start').catch(showClientError)
 })
 
@@ -752,6 +976,14 @@ document
     })
   })
 
+document
+  .querySelectorAll<HTMLInputElement>('input[name="controls"]')
+  .forEach((input) => {
+    input.addEventListener('change', () => {
+      setControlScheme(input.value as ControlScheme)
+    })
+  })
+
 playerName.addEventListener('click', () => {
   promptForPlayerName()
 })
@@ -771,6 +1003,10 @@ setPlayerName(getPlayerName())
 
 setDifficulty(getDifficulty())
 setPlums(getPlums())
+setControlScheme(getControlScheme())
+// Keyboard steering only reaches a board the player can see, so the first
+// paint puts it in the middle of the window too.
+focusGameBoard()
 setSoundEnabled(window.localStorage.getItem(SOUND_STORAGE_KEY) !== 'off')
 
 window.addEventListener('beforeunload', () => {

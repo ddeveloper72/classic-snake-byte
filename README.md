@@ -6,6 +6,9 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Framework-independent, typed game engine
 - Autonomous server game loop and authoritative WebSocket broadcasts
 - Player-selectable snake speed, levels 1 to 5, for accessible play
+- Selectable arrow-key, WASD, or either-scheme steering
+- Zero to two bouncing perilous plums as a second difficulty dial
+- Apple quota per level with an exit door that must be steered through
 - Level mazes that grow from an open board to Apple IIe style walls
 - Web Audio sound cues modelled on the original single-speaker beeps
 - Idle demo autoplay at randomized difficulty levels
@@ -35,17 +38,54 @@ stays at or above 0.24 seconds per cell no matter how long the run lasts.
 
 The selection, and the sound on/off choice, persist in `localStorage`.
 
-## Level mazes
+## Steering
+
+The control scheme is a stored preference, chosen in the Controls panel:
+
+- `ARROWS` — only the arrow keys steer.
+- `WASD` — only W, A, S and D steer.
+- `EITHER` — both layouts work at once. This is the default.
+
+Keys are matched case-insensitively, so Caps Lock never disables steering. The
+board scrolls itself to the centre of the window when the page loads and when a
+new game starts, so play always begins on a board the player can see.
+
+## Perilous plums
+
+The original asked "HOW MANY PLUMS?" before every game, and so does this one.
+Zero to two plums travel diagonally and rebound off the board edges, the maze
+walls, and the snake itself. They follow the original's asymmetry:
+
+- A plum that reaches the snake's **head** ends the game.
+- A plum that hits the snake's **body** simply bounces off, so a long tail is a
+  usable shield rather than a bigger target.
+
+Steering into a plum is just as fatal as being hit by one. Plums never spawn on
+the snake, on food, inside a wall, or in the spawn corridor, and a plum that a
+level change walls in is released onto open ground.
+
+## Apples, the exit door, and level mazes
+
+Each level holds a quota of apples (`APPLES_PER_LEVEL`). Eating the last one
+does **not** advance the level. Instead it stops the apples, opens a door in the
+top wall, and the player must steer the snake out through that gap. The door
+column moves from level to level, and leaving the board anywhere else is still
+fatal.
 
 Level 1 is a clean board. From level 2 onwards the engine adds walls that
-rebuild the "E" shape of the original game. Two rules keep the mazes fair, and
-both are covered by tests:
+rebuild the "E" shape of the original game. Every wall carries a doorway, which
+is deliberate coaching: threading a gap to reach an apple teaches the same skill
+the exit door later demands. Three rules keep the mazes fair, and all are
+covered by tests:
 
 - A corridor in front of the spawning snake is always left open.
 - Every open cell stays reachable, so food can never appear in a sealed pocket.
+- Every wall has at least one doorway, so no layout is a sealed barrier.
 
 Walls are fatal on contact, food never spawns inside one, and a wall added by a
-level change can never materialise on top of the snake.
+level change can never materialise on top of the snake. Clearing a level returns
+the snake to its starting length, which also guarantees the next maze can never
+close around it.
 
 ## Run locally
 

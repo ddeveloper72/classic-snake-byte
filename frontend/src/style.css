@@ -141,9 +141,12 @@ h1 {
 
 canvas {
   display: block;
-  width: 100%;
+  /* 3:2 board, so bounding the width by viewport height keeps the whole
+     board on screen without ever distorting the aspect ratio. */
+  width: min(100%, 84vh);
   height: auto;
   aspect-ratio: 3 / 2;
+  margin-inline: auto;
   image-rendering: pixelated;
 }
 
@@ -272,6 +275,14 @@ canvas {
 
 .difficulty-option:has(input:checked) .difficulty-number {
   color: #fff;
+}
+
+/* The control-scheme tiles show key caps rather than a single digit, so they
+   need a smaller face to sit on one line. */
+.control-keys {
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 .difficulty-label {

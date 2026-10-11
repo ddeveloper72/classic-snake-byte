@@ -46,6 +46,17 @@ SECONDS_PER_CELL: dict[int, float] = {
 LEVEL_SPEED_STEP = 0.94
 MIN_LEVEL_SPEED_RATIO = 0.6
 
+# Learning note:
+#     The original tracked an "APPLES LEFT" counter. Clearing it does not by
+#     itself advance the level: it unlocks a door in the top wall that the
+#     player must then steer the snake through. Progress is therefore a skill
+#     test rather than an automatic reward for eating.
+APPLES_PER_LEVEL = 4
+
+# Points awarded for one apple, kept here so the score and the apple counter
+# can never drift apart.
+POINTS_PER_APPLE = 10
+
 
 def clamp_difficulty(difficulty: int) -> int:
     """Return a difficulty forced into the supported 1-5 range."""
@@ -123,14 +134,29 @@ def spawn_corridor(board: GameBoard) -> frozenset[Position]:
     return frozenset(Position(x, center_y) for x in range(first_segment_x, board.width))
 
 
+def door_column(board: GameBoard, level: int) -> int:
+    """Return the x position of the exit door in the top wall for a level.
+
+    Learning note:
+        The door moves from level to level so the run to the exit is a fresh
+        navigation problem each time. It is derived from the level rather than
+        drawn at random so a replayed level always behaves identically, which
+        keeps the engine deterministic and testable.
+    """
+
+    usable = max(1, board.width - 4)
+    return 2 + (level * 7) % usable
+
+
 def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
     """Return the maze walls for a level.
 
     Learning note:
         The 1981 original introduced a new wall layout on every level. These
-        layouts grow the same way and are deliberately open on the right so the
-        board can always be completed: no layout ever encloses a region, which
-        means food is always reachable.
+        layouts grow the same way, but every wall carries a doorway. Those
+        doorways are deliberate coaching: the player practises threading a gap
+        to reach an apple long before the same skill is needed to thread the
+        exit door in the top wall.
     """
 
     if level <= 1:
@@ -143,20 +169,31 @@ def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
     top = center_y - 4
     bottom = center_y + 4
 
-    # Level 2 lays down the pair of horizontal rails.
+    # Level 2 lays down the pair of horizontal rails, each with its own gap so
+    # the enclosed band is really a room with two doors rather than a barrier.
+    top_door_x = left + 4
+    bottom_door_x = right - 4
     for x in range(left, right + 1):
-        cells.add(Position(x, top))
-        cells.add(Position(x, bottom))
+        if x != top_door_x:
+            cells.add(Position(x, top))
+        if x != bottom_door_x:
+            cells.add(Position(x, bottom))
 
-    # Level 3 closes the left edge, turning the rails into an open "C".
+    # Level 3 closes the left edge, turning the rails into a room, and leaves a
+    # side door so the room never becomes a dead end.
     if level >= 3:
+        side_door_y = top + 2
         for y in range(top, bottom + 1):
-            cells.add(Position(left, y))
+            if y != side_door_y:
+                cells.add(Position(left, y))
 
-    # Level 4 adds the centre crossbar that forms the recognisable "E".
+    # Level 4 adds the centre crossbar that forms the recognisable "E",
+    # splitting the room in two and giving each half its own doorway.
     if level >= 4:
+        crossbar_door_x = left + 3
         for x in range(left, board.width // 2 + 1):
-            cells.add(Position(x, center_y))
+            if x != crossbar_door_x:
+                cells.add(Position(x, center_y))
 
     # Level 5 and above guard the right-hand approach without sealing it.
     if level >= 5:
@@ -236,15 +273,22 @@ class GameState:
 
     board: GameBoard
     snake: Snake
-    food: Position
+    food: Position | None
     score: int = 0
     level: int = 1
+    # Apples still to eat before the exit door unlocks. The door is the only
+    # way to reach the next level, so this counter gates progress.
+    apples_remaining: int = APPLES_PER_LEVEL
+    door_open: bool = False
+    door_x: int = 0
     difficulty: int = MIN_DIFFICULTY
     obstacles: frozenset[Position] = field(default_factory=frozenset)
     plums: list[Plum] = field(default_factory=list)
     # Transient, cleared at the start of every tick, so adapters can play a
     # rebound sound without tracking plum headings between snapshots.
     plum_bounced: bool = False
+    # Transient, set on the tick the snake threads the exit door.
+    level_cleared: bool = False
     paused: bool = False
     game_over: bool = False
     demo_mode: bool = False
@@ -291,9 +335,16 @@ class GameEngine:
 
     @property
     def level(self) -> int:
-        """Return the current level, which rises every four food items."""
+        """Return the current level.
 
-        return max(1, self.state.score // 40 + 1)
+        Learning note:
+            The level is authoritative state rather than a function of the
+            score, because it now only rises when the snake leaves through the
+            exit door. Deriving it from the score would let a player skip the
+            door simply by eating.
+        """
+
+        return self.state.level
 
     @property
     def tick_interval(self) -> float:
@@ -328,6 +379,7 @@ class GameEngine:
             snake,
             center,
             level=1,
+            door_x=door_column(self._board, 1),
             difficulty=self._difficulty,
             obstacles=build_obstacles(self._board, 1),
             demo_mode=False,
@@ -340,7 +392,9 @@ class GameEngine:
         """Place plums on free cells well clear of the snake's starting lane."""
 
         corridor = spawn_corridor(state.board)
-        taken = {state.food, *state.snake.body}
+        taken = {*state.snake.body}
+        if state.food is not None:
+            taken.add(state.food)
         plums: list[Plum] = []
         for _ in range(clamp_plums(count)):
             available = [
@@ -388,8 +442,9 @@ class GameEngine:
 
         target_level = max(1, min(level, 8))
         self.state = self._new_state()
-        self.state.score = (target_level - 1) * 40
+        self.state.score = (target_level - 1) * APPLES_PER_LEVEL * POINTS_PER_APPLE
         self.state.level = target_level
+        self.state.door_x = door_column(self._board, target_level)
         self.state.demo_mode = True
         self._apply_level_layout()
         self.state.food = self._spawn_food(self.state)
@@ -436,8 +491,20 @@ class GameEngine:
             return self.state
 
         self.state.plum_bounced = False
+        self.state.level_cleared = False
 
         next_head = self.state.snake.next_head()
+
+        # The exit door is a gap in the top wall, so leaving the board through
+        # that one column clears the level instead of killing the snake.
+        if (
+            self.state.door_open
+            and next_head.y < 0
+            and next_head.x == self.state.door_x
+        ):
+            self._advance_level()
+            return self.state
+
         eats_food = next_head == self.state.food
         # On a normal move the tail vacates its cell, so moving into it is safe.
         body_to_check = (
@@ -458,17 +525,41 @@ class GameEngine:
 
         self.state.snake.body.insert(0, next_head)
         if eats_food:
-            self.state.score += 10
-            previous_level = self.state.level
-            self.state.level = self.level
-            if self.state.level != previous_level:
-                self._apply_level_layout()
-            self.state.food = self._spawn_food(self.state)
+            self.state.score += POINTS_PER_APPLE
+            self.state.apples_remaining = max(0, self.state.apples_remaining - 1)
+            if self.state.apples_remaining == 0:
+                # The board is cleared: stop replacing apples and open the door.
+                self.state.door_open = True
+                self.state.food = None
+            else:
+                self.state.food = self._spawn_food(self.state)
         else:
             self.state.snake.body.pop()
-        self.state.level = self.level
         self._move_plums()
         return self.state
+
+    def _advance_level(self) -> None:
+        """Clear the level and rebuild the board for the next one.
+
+        Learning note:
+            The snake returns to its starting length here. That is faithful to
+            the original, and it also guarantees the new maze can never close
+            around a long snake that happened to be lying across the new walls.
+        """
+
+        next_level = self.state.level + 1
+        score = self.state.score
+        demo_mode = self.state.demo_mode
+
+        self.state = self._new_state()
+        self.state.score = score
+        self.state.level = next_level
+        self.state.demo_mode = demo_mode
+        self.state.door_x = door_column(self._board, next_level)
+        self.state.level_cleared = True
+        self._apply_level_layout()
+        self.state.food = self._spawn_food(self.state)
+        self.state.plums = self._spawn_plums(self.state, self._plums)
 
     def _move_plums(self) -> None:
         """Bounce every plum one cell and end the game on a head strike."""

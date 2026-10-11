@@ -240,6 +240,13 @@ class GameLoopService:
         """Choose the next safe turn for the autoplay routine."""
 
         head = self.state.snake.head
+        # With the apples cleared the only worthwhile target is the exit door,
+        # so attract mode demonstrates the level-clearing run too.
+        if self.state.food is not None:
+            target = self.state.food
+        else:
+            target = Position(self.state.door_x, 0)
+
         candidates: list[Direction] = []
         for direction in Direction:
             reverses_into_body = (
@@ -250,6 +257,13 @@ class GameLoopService:
                 continue
             dx, dy = direction.delta
             next_head = Position(head.x + dx, head.y + dy)
+            leaves_by_door = (
+                self.state.door_open
+                and next_head.y < 0
+                and next_head.x == self.state.door_x
+            )
+            if leaves_by_door:
+                return direction
             if not self.state.board.contains(next_head):
                 continue
             if next_head in self.state.snake.body[:-1]:
@@ -268,8 +282,8 @@ class GameLoopService:
         scored = sorted(
             candidates,
             key=lambda direction: (
-                abs((head.x + direction.delta[0]) - self.state.food.x)
-                + abs((head.y + direction.delta[1]) - self.state.food.y),
+                abs((head.x + direction.delta[0]) - target.x)
+                + abs((head.y + direction.delta[1]) - target.y),
                 self._random.random(),
             ),
         )

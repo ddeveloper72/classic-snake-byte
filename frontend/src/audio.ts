@@ -79,6 +79,24 @@ export class SoundBoard {
   }
 
   /**
+   * The chime that announces the exit door has unlocked.
+   *
+   * Learning note:
+   * A rising arpeggio reads as "something opened" and is deliberately distinct
+   * from the level-up fanfare, which plays once the door is actually used.
+   */
+  doorOpen(): void {
+    this.play(
+      [
+        { frequency: 523, duration: 0.07 },
+        { frequency: 698, duration: 0.07 },
+        { frequency: 880, duration: 0.12 },
+      ],
+      PEAK_GAIN * 0.8,
+    )
+  }
+
+  /**
    * The rebound of a perilous plum.
    *
    * Learning note:
