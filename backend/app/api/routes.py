@@ -13,11 +13,13 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.app.domain.game import Direction
-from backend.app.models.game import GameStateResponse, InputRequest
+from backend.app.models.game import GameStateResponse, InputRequest, ScoreResponse
 from backend.app.services.game_loop import GameLoopService, StateSignal
+from backend.app.services.persistence import PersistenceService
 
 router = APIRouter()
 game_service = GameLoopService()
+persistence_service: PersistenceService | None = None
 
 
 def state_response() -> GameStateResponse:
@@ -29,10 +31,24 @@ def state_response() -> GameStateResponse:
     )
 
 
+def configure_persistence(service: PersistenceService) -> None:
+    """Attach application storage after settings are loaded."""
+
+    global persistence_service
+    persistence_service = service
+
+
+def require_persistence() -> PersistenceService:
+    if persistence_service is None:
+        raise RuntimeError("Persistence has not been configured")
+    return persistence_service
+
+
 @router.post("/game/start", response_model=GameStateResponse)
 async def start_game() -> GameStateResponse:
     """Start a new game and return its initial state."""
 
+    await require_persistence().start_game()
     await game_service.start_game()
     return state_response()
 
@@ -66,6 +82,14 @@ async def resume_game() -> GameStateResponse:
 
     await game_service.resume()
     return state_response()
+
+
+@router.get("/scores", response_model=list[ScoreResponse])
+async def get_scores() -> list[ScoreResponse]:
+    """Return the top completed scores."""
+
+    rows = await require_persistence().leaderboard()
+    return [ScoreResponse.model_validate(dict(row)) for row in rows]
 
 
 @router.websocket("/ws/game")
