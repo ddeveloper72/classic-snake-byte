@@ -22,6 +22,7 @@ interface GameState {
   started: boolean
   paused: boolean
   game_over: boolean
+  demo_mode: boolean
 }
 
 const CANVAS_WIDTH = 720
@@ -185,7 +186,8 @@ function isGameState(value: unknown): value is GameState {
     Number(candidate.level) >= 1 &&
     typeof candidate.started === 'boolean' &&
     typeof candidate.paused === 'boolean' &&
-    typeof candidate.game_over === 'boolean'
+    typeof candidate.game_over === 'boolean' &&
+    typeof candidate.demo_mode === 'boolean'
   )
 }
 
@@ -246,7 +248,9 @@ function render(game: GameState): void {
   pauseButton.disabled = !game.started || game.game_over
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
-  if (!game.started) {
+  if (game.demo_mode) {
+    showOverlay('DEMO MODE', `Autoplaying at level ${game.level}`)
+  } else if (!game.started) {
     showOverlay('READY?', 'Press New Game to begin')
   } else if (game.game_over) {
     showOverlay('GAME OVER', 'Press New Game to try again')

@@ -112,6 +112,7 @@ class GameState:
     level: int = 1
     paused: bool = False
     game_over: bool = False
+    demo_mode: bool = False
 
 
 class GameEngine:
@@ -157,9 +158,20 @@ class GameEngine:
         snake = Snake(
             [center, Position(center.x - 1, center.y), Position(center.x - 2, center.y)]
         )
-        state = GameState(self._board, snake, center, level=1)
+        state = GameState(self._board, snake, center, level=1, demo_mode=False)
         state.food = self._spawn_food(state)
         return state
+
+    def set_demo_level(self, level: int) -> GameState:
+        """Prepare a fresh board and score for a demo session at a chosen level."""
+
+        target_level = max(1, min(level, 8))
+        self.state = self._new_state()
+        self.state.score = (target_level - 1) * 40
+        self.state.level = target_level
+        self.state.demo_mode = True
+        self.state.food = self._spawn_food(self.state)
+        return self.state
 
     def reset(self) -> GameState:
         """Replace the current game with a fresh, active game."""

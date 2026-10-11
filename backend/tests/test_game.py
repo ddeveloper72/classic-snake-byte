@@ -4,7 +4,10 @@ Fixed random seeds keep food placement deterministic so failures describe game
 logic changes rather than random test data.
 """
 
+import asyncio
+
 from backend.app.domain.game import Direction, GameBoard, GameEngine, Position
+from backend.app.services.game_loop import GameLoopService
 
 
 def test_tick_moves_snake_and_preserves_length() -> None:
@@ -52,3 +55,23 @@ def test_level_rises_as_score_increases() -> None:
 
     assert engine.level == 3
     assert engine.tick_interval == 0.13
+
+
+def test_demo_level_sets_autoplay_state() -> None:
+    engine = GameEngine(seed=1)
+
+    state = engine.set_demo_level(4)
+
+    assert state.demo_mode is True
+    assert state.level == 4
+    assert state.score == 120
+
+
+def test_game_loop_can_launch_demo_mode() -> None:
+    async def run_test() -> None:
+        service = GameLoopService()
+        state = await service.start_demo_game()
+        assert state.demo_mode is True
+        assert 1 <= state.level <= 5
+
+    asyncio.run(run_test())

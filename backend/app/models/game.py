@@ -40,6 +40,7 @@ class GameStateResponse(BaseModel):
     started: bool
     paused: bool
     game_over: bool
+    demo_mode: bool
 
     @classmethod
     def from_domain(cls, state: GameState, *, started: bool) -> GameStateResponse:
@@ -56,4 +57,5 @@ class GameStateResponse(BaseModel):
             started=started,
             paused=state.paused,
             game_over=state.game_over,
+            demo_mode=state.demo_mode,
         )
