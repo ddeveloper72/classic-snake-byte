@@ -83,9 +83,12 @@ dangerous to approach.
 Each level holds 15 apples (`APPLES_PER_LEVEL`). The board begins with one
 visible apple, then adds another concurrent apple after every third one eaten,
 up to five visible apples or however many remain. Eating the last apple does
-**not** advance the level. Instead it clears the apples, opens a door in the top
-wall, and the player must steer the snake out through that gap. The door column
-moves from level to level, and leaving the board anywhere else is still fatal.
+**not** advance the level. Instead it clears the apples, unlocks the exit door
+at the top centre of the board, and the player must steer the snake out through
+that gap. The door sits at the same centre column on every level and no maze is
+allowed to place a wall on the top row, so the run to the exit is always
+possible. There is no drawn top rail — the whole board is playable and leaving
+it anywhere other than the open door is still fatal.
 
 Growth also accelerates without becoming explosive. Apples 1-3 add one body
 cell each; apples 4-7 add two; apples 8-11 add three; and apples 12-15 add four.

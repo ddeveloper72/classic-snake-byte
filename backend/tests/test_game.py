@@ -625,20 +625,35 @@ def test_a_shut_door_is_not_an_exit() -> None:
     assert engine.state.level == 1
 
 
-def test_the_door_moves_between_levels() -> None:
+def test_the_door_sits_at_the_top_centre_on_every_level() -> None:
     board = GameBoard()
-    columns = {door_column(board, level) for level in range(1, MAZE_COUNT + 1)}
 
-    assert len(columns) > 1
+    assert door_column(board) == board.width // 2
+
     for level in range(1, MAZE_COUNT + 1):
-        assert 0 <= door_column(board, level) < board.width
+        engine = GameEngine(seed=level)
+        engine.set_demo_level(level)
+
+        assert engine.state.door_x == board.width // 2
+
+
+def test_the_top_row_is_always_free_for_the_run_to_the_door() -> None:
+    """No maze may wall off row zero, or the fixed exit could be unreachable."""
+
+    board = GameBoard()
+
+    for level in range(1, MAZE_COUNT + 1):
+        walls = build_obstacles(board, level)
+        top_row = [x for x in range(board.width) if Position(x, 0) in walls]
+
+        assert top_row == []
 
 
 def test_the_door_is_never_buried_in_a_wall() -> None:
     board = GameBoard()
     for level in range(1, MAZE_COUNT + 1):
         walls = build_obstacles(board, level)
-        assert Position(door_column(board, level), 0) not in walls
+        assert Position(door_column(board), 0) not in walls
 
 
 def test_level_two_bar_has_a_two_cell_gap() -> None:

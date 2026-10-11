@@ -489,7 +489,7 @@ function render(game: GameState): void {
     drawWall(wall, cellWidth, cellHeight)
   })
 
-  drawTopWall(game, cellWidth, cellHeight)
+  drawExitDoor(game, cellWidth, cellHeight)
 
   game.foods.forEach((food) => drawApple(food, cellWidth, cellHeight))
   drawSnake(game, cellWidth, cellHeight)
@@ -510,7 +510,7 @@ function render(game: GameState): void {
   // The door is easy to miss mid-game, so the hint line calls it out directly.
   if (game.door_open && !game.game_over) {
     instructions.textContent =
-      'Apples cleared — escape through the glowing door in the top wall!'
+      'Apples cleared — escape through the glowing door at the top centre!'
   } else if (game.speed_pressure_percent > 0 && !game.demo_mode) {
     const atMaximum = game.speed_pressure_percent === 25
     instructions.textContent = atMaximum
@@ -555,55 +555,50 @@ function drawWall(
 }
 
 /**
- * Draw the top wall and, once the apple quota is cleared, the exit door in it.
+ * Draw the exit door at the top centre of the board.
  *
  * Learning note:
- * The door is the only route to the next level, so it is drawn as a literal
- * break in a solid wall with an arrow through it. Players should be able to
- * see where to go without reading any instructions.
+ * Earlier builds drew a solid rail across the top, which cost the player a
+ * whole row of playable board. The top edge is lethal exactly like the other
+ * three, so it needs no rail of its own. Only the door is drawn: slim jambs
+ * mark it all game long so a route can be planned, and the gap between them
+ * lights up with an arrow once the apple quota unlocks it.
  */
-function drawTopWall(
+function drawExitDoor(
   game: GameState,
   cellWidth: number,
   cellHeight: number,
 ): void {
-  const thickness = Math.max(3, cellHeight * 0.22)
   const doorLeft = game.door_x * cellWidth
+  const jamb = Math.max(2, cellWidth * 0.1)
+  const jambHeight = Math.max(4, cellHeight * 0.45)
   const open = game.door_open
 
-  context.fillStyle = '#2f7a4a'
-  if (open) {
-    context.fillRect(0, 0, doorLeft, thickness)
-    context.fillRect(
-      doorLeft + cellWidth,
-      0,
-      canvas.width - doorLeft - cellWidth,
-      thickness,
-    )
-  } else {
-    context.fillRect(0, 0, canvas.width, thickness)
-  }
+  context.fillStyle = open ? '#7dffb0' : '#2f7a4a'
+  context.fillRect(doorLeft - jamb, 0, jamb, jambHeight)
+  context.fillRect(doorLeft + cellWidth, 0, jamb, jambHeight)
 
   if (!open) {
     return
   }
 
-  // A pulsing glow makes the gap unmistakable against the grid behind it.
+  // A pulsing glow and arrow make the unlocked gap unmistakable.
   const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 180)
+  const lintel = Math.max(3, cellHeight * 0.16)
   context.save()
-  context.fillStyle = '#7dffb0'
   context.globalAlpha = pulse
-  context.fillRect(doorLeft, 0, cellWidth, thickness)
+  context.fillStyle = '#7dffb0'
+  context.fillRect(doorLeft, 0, cellWidth, lintel)
 
   const centerX = doorLeft + cellWidth / 2
   context.strokeStyle = '#7dffb0'
   context.lineWidth = Math.max(2, cellWidth * 0.14)
   context.beginPath()
-  context.moveTo(centerX, cellHeight * 1.5)
-  context.lineTo(centerX, thickness + 2)
-  context.moveTo(centerX - cellWidth * 0.3, cellHeight * 0.55)
-  context.lineTo(centerX, thickness + 2)
-  context.lineTo(centerX + cellWidth * 0.3, cellHeight * 0.55)
+  context.moveTo(centerX, cellHeight * 1.9)
+  context.lineTo(centerX, lintel + 2)
+  context.moveTo(centerX - cellWidth * 0.3, cellHeight * 0.95)
+  context.lineTo(centerX, lintel + 2)
+  context.lineTo(centerX + cellWidth * 0.3, cellHeight * 0.95)
   context.stroke()
   context.restore()
 }

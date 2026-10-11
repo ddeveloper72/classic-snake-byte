@@ -155,18 +155,16 @@ def spawn_corridor(board: GameBoard) -> frozenset[Position]:
     return frozenset(Position(x, center_y) for x in range(first_segment_x, board.width))
 
 
-def door_column(board: GameBoard, level: int) -> int:
-    """Return the x position of the exit door in the top wall for a level.
+def door_column(board: GameBoard) -> int:
+    """Return the x position of the exit door along the top edge.
 
     Learning note:
-        The door moves from level to level so the run to the exit is a fresh
-        navigation problem each time. It is derived from the level rather than
-        drawn at random so a replayed level always behaves identically, which
-        keeps the engine deterministic and testable.
+        The door sits at the top centre on every level. A fixed exit means the
+        top row is never reserved for a drawn wall, so the snake can use the
+        whole board, and the player always knows where the escape route is.
     """
 
-    usable = max(1, board.width - 4)
-    return 2 + (level * 7) % usable
+    return board.width // 2
 
 
 def build_obstacles(board: GameBoard, level: int) -> frozenset[Position]:
@@ -451,7 +449,7 @@ class GameEngine:
             snake,
             [],
             level=1,
-            door_x=door_column(self._board, 1),
+            door_x=door_column(self._board),
             difficulty=self._difficulty,
             obstacles=build_obstacles(self._board, 1),
             demo_mode=False,
@@ -516,7 +514,7 @@ class GameEngine:
         self.state = self._new_state()
         self.state.score = (target_level - 1) * APPLES_PER_LEVEL * POINTS_PER_APPLE
         self.state.level = target_level
-        self.state.door_x = door_column(self._board, target_level)
+        self.state.door_x = door_column(self._board)
         self.state.demo_mode = True
         self._apply_level_layout()
         self.state.foods.clear()
@@ -635,7 +633,7 @@ class GameEngine:
         self.state.score = score
         self.state.level = next_level
         self.state.demo_mode = demo_mode
-        self.state.door_x = door_column(self._board, next_level)
+        self.state.door_x = door_column(self._board)
         self.state.level_cleared = True
         self._apply_level_layout()
         self.state.foods.clear()
