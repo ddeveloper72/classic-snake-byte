@@ -382,6 +382,139 @@ canvas {
   }
 }
 
+/*
+ * Desktop cockpit layout
+ *
+ * Learning note:
+ * The status panel and controls belong in the player's peripheral vision
+ * while the snake stays in the centre. This layout only activates when there
+ * is enough horizontal room; narrower and touch-first screens retain the
+ * stacked flow so neither the board nor the controls become cramped.
+ */
+@media (min-width: 1200px) and (hover: hover) {
+  .shell {
+    display: grid;
+    grid-template-columns:
+      minmax(10.5rem, 0.65fr)
+      minmax(38rem, 2.5fr)
+      minmax(20rem, 1fr);
+    grid-template-areas:
+      'brand brand brand'
+      'stats game controls';
+    align-items: start;
+    gap: 1.25rem;
+    width: min(1560px, 100%);
+    padding: clamp(1rem, 2vw, 2rem);
+  }
+
+  /* Let the brand and status panel participate directly in the shell grid. */
+  .masthead {
+    display: contents;
+  }
+
+  .brand {
+    grid-area: brand;
+    margin-bottom: 0.25rem;
+    text-align: center;
+  }
+
+  .brand h1 {
+    font-size: clamp(3rem, 5vw, 5rem);
+  }
+
+  .score-panel {
+    position: sticky;
+    top: 1rem;
+    grid-area: stats;
+    display: grid;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0;
+    padding: 0;
+    text-align: left;
+  }
+
+  .score-box {
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid #173d22;
+  }
+
+  .score-box:last-child {
+    border-bottom: 0;
+  }
+
+  .score-panel strong,
+  .score-panel .player-name {
+    font-size: clamp(1.2rem, 1.6vw, 1.7rem);
+  }
+
+  .score-panel .player-name {
+    min-height: 0;
+    padding: 0;
+    text-align: left;
+  }
+
+  .game-frame {
+    grid-area: game;
+    align-self: start;
+  }
+
+  canvas {
+    width: 100%;
+  }
+
+  .controls {
+    position: sticky;
+    top: 1rem;
+    grid-area: controls;
+    justify-items: stretch;
+    gap: 0.65rem;
+    margin-top: 0;
+  }
+
+  .difficulty {
+    max-width: none;
+    padding: 0.65rem 0.7rem 0.7rem;
+  }
+
+  .difficulty-options {
+    grid-template-columns: repeat(auto-fit, minmax(3.1rem, 1fr));
+    gap: 0.3rem;
+  }
+
+  .difficulty-option {
+    padding-inline: 0.15rem;
+  }
+
+  .difficulty-label {
+    font-size: 0.58rem;
+  }
+
+  .difficulty-hint {
+    margin-top: 0.45rem;
+    min-height: 0;
+    font-size: 0.7rem;
+  }
+
+  .button-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+  }
+
+  .button-row button {
+    min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.78rem;
+  }
+
+  .instructions {
+    font-size: 0.74rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;

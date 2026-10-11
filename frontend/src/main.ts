@@ -132,7 +132,7 @@ const WASD_KEYS: Readonly<Record<string, Direction>> = {
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <main class="shell">
     <header class="masthead">
-      <div>
+      <div class="brand">
         <p class="eyebrow">Apple IIe spirit. Modern Python engine.</p>
         <h1>SNAKEBITE</h1>
       </div>

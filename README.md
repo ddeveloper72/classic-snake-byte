@@ -48,7 +48,10 @@ The control scheme is a stored preference, chosen in the Controls panel:
 
 Keys are matched case-insensitively, so Caps Lock never disables steering. The
 board scrolls itself to the centre of the window when the page loads and when a
-new game starts, so play always begins on a board the player can see.
+new game starts, so play always begins on a board the player can see. On wide
+desktop screens, player and score information sits immediately to the left of
+the board while the game controls sit immediately to its right. Narrow and
+touch-first screens retain the stacked layout.
 
 ## Perilous plums
 
