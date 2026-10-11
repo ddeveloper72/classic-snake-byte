@@ -51,7 +51,10 @@ class Database:
                 ended_at TEXT,
                 score INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'active'
-                    CHECK (status IN ('active', 'completed'))
+                    CHECK (status IN ('active', 'completed')),
+                final_level INTEGER CHECK (final_level IS NULL OR final_level >= 1),
+                game_won INTEGER NOT NULL DEFAULT 0
+                    CHECK (game_won IN (0, 1))
             );
 
             CREATE TABLE IF NOT EXISTS scores (
@@ -66,7 +69,35 @@ class Database:
                 ON scores(score DESC);
             """
         )
-        await connection.commit()
+
+        # CREATE TABLE IF NOT EXISTS never adds columns to an existing database.
+        # These fixed-name migrations preserve older local scores while marking
+        # their unknown result as a non-win, so they cannot enter the winners table.
+        cursor = await connection.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        migrations = []
+        if "final_level" not in columns:
+            migrations.append(
+                "ALTER TABLE games ADD COLUMN final_level INTEGER "
+                "CHECK (final_level IS NULL OR final_level >= 1)"
+            )
+        if "game_won" not in columns:
+            migrations.append(
+                "ALTER TABLE games ADD COLUMN game_won INTEGER NOT NULL DEFAULT 0 "
+                "CHECK (game_won IN (0, 1))"
+            )
+
+        if migrations:
+            await connection.execute("BEGIN IMMEDIATE")
+            try:
+                for statement in migrations:
+                    await connection.execute(statement)
+                await connection.commit()
+            except Exception:
+                await connection.rollback()
+                raise
+        else:
+            await connection.commit()
 
     async def execute(
         self,

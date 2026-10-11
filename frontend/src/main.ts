@@ -42,8 +42,15 @@ interface ReplayFrame {
   activeAt: number
 }
 
+interface WinnerScore {
+  name: string
+  score: number
+  created_at: string
+}
+
 const CANVAS_WIDTH = 720
 const CANVAS_HEIGHT = 480
+const MAX_PLAYER_NAME_LENGTH = 24
 const RESULT_PRESENTATION_MS = 3000
 const REPLAY_SPEED = 2
 const MAX_REPLAY_FRAMES = 20_000
@@ -151,6 +158,15 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <div class="score-box">
           <span>PLAYER</span>
           <button type="button" id="player-name" class="player-name" title="Click to rename">PLAYER</button>
+          <input
+            id="player-name-input"
+            class="player-name-input"
+            type="text"
+            maxlength="${MAX_PLAYER_NAME_LENGTH}"
+            autocomplete="nickname"
+            aria-label="Player name"
+            hidden
+          />
         </div>
         <div class="score-box">
           <span>SCORE</span>
@@ -247,6 +263,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <p id="controls-hint" class="difficulty-hint" aria-live="polite"></p>
       </fieldset>
 
+      <section class="leaderboard" aria-labelledby="leaderboard-title">
+        <h2 id="leaderboard-title">TOP 10 WINNERS</h2>
+        <ol id="leaderboard-list" aria-live="polite">
+          <li class="leaderboard-empty">NO WINNERS YET</li>
+        </ol>
+      </section>
+
       <div class="button-row">
         <button id="start" class="primary" type="button">NEW GAME</button>
         <button id="pause" type="button" disabled>PAUSE</button>
@@ -282,6 +305,7 @@ const apples = requireElement<HTMLElement>('#apples')
 const pace = requireElement<HTMLElement>('#pace')
 const instructions = requireElement<HTMLElement>('#instructions')
 const playerName = requireElement<HTMLButtonElement>('#player-name')
+const playerNameInput = requireElement<HTMLInputElement>('#player-name-input')
 const overlay = requireElement<HTMLElement>('#overlay')
 const overlayTitle = requireElement<HTMLElement>('#overlay-title')
 const overlayMessage = requireElement<HTMLElement>('#overlay-message')
@@ -294,6 +318,7 @@ const soundButton = requireElement<HTMLButtonElement>('#sound')
 const difficultyHint = requireElement<HTMLElement>('#difficulty-hint')
 const plumsHint = requireElement<HTMLElement>('#plums-hint')
 const controlsHint = requireElement<HTMLElement>('#controls-hint')
+const leaderboardList = requireElement<HTMLOListElement>('#leaderboard-list')
 
 const sounds = new SoundBoard()
 
@@ -313,6 +338,8 @@ let recordingPlayerGame = false
 let sequencePhase: 'none' | 'presentation' | 'replay' = 'none'
 let sequenceToken = 0
 let trophyTimer: number | null = null
+let editingPlayerName = false
+let activeGamePlayerName = 'PLAYER'
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -345,6 +372,7 @@ function connect(): void {
 
   socket.addEventListener('open', () => {
     setConnectionStatus('connected', 'Game server connected')
+    void loadLeaderboard()
   })
 
   socket.addEventListener('message', (event: MessageEvent<string>) => {
@@ -424,7 +452,58 @@ function isCoordinate(value: unknown): value is [number, number] {
   )
 }
 
+function isWinnerScore(value: unknown): value is WinnerScore {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<WinnerScore>
+  return (
+    typeof candidate.name === 'string' &&
+    Number.isInteger(candidate.score) &&
+    Number(candidate.score) >= 0 &&
+    typeof candidate.created_at === 'string'
+  )
+}
+
+async function loadLeaderboard(): Promise<void> {
+  try {
+    const response = await fetch('/scores')
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    const payload: unknown = await response.json()
+    if (!Array.isArray(payload) || !payload.every(isWinnerScore)) {
+      throw new Error('Invalid leaderboard response')
+    }
+
+    leaderboardList.replaceChildren()
+    if (payload.length === 0) {
+      const empty = document.createElement('li')
+      empty.className = 'leaderboard-empty'
+      empty.textContent = 'NO WINNERS YET'
+      leaderboardList.append(empty)
+      return
+    }
+
+    payload.forEach((winner) => {
+      const item = document.createElement('li')
+      const name = document.createElement('span')
+      const points = document.createElement('strong')
+      name.textContent = winner.name
+      points.textContent = winner.score.toString().padStart(6, '0')
+      item.append(name, points)
+      leaderboardList.append(item)
+    })
+  } catch {
+    const unavailable = document.createElement('li')
+    unavailable.className = 'leaderboard-empty'
+    unavailable.textContent = 'LEADERBOARD UNAVAILABLE'
+    leaderboardList.replaceChildren(unavailable)
+  }
+}
+
 function beginReplayRecording(game: GameState): void {
+  activeGamePlayerName = getPlayerName()
   replayFrames = []
   replayActiveMilliseconds = 0
   lastRecordedAt = performance.now()
@@ -496,7 +575,11 @@ async function postGameAction(action: 'start' | 'pause' | 'resume'): Promise<voi
     headers: { 'Content-Type': 'application/json' },
     body:
       action === 'start'
-        ? JSON.stringify({ difficulty: getDifficulty(), plums: getPlums() })
+        ? JSON.stringify({
+            difficulty: getDifficulty(),
+            plums: getPlums(),
+            player_name: getPlayerName(),
+          })
         : undefined,
   })
   if (!response.ok) {
@@ -638,16 +721,17 @@ function startCompletionSequence(finalGame: GameState): void {
   trophyIcon.hidden = !finalGame.game_won
   overlay.classList.toggle('trophy-presentation', finalGame.game_won)
   if (finalGame.game_won) {
+    void loadLeaderboard()
     showOverlay(
       'TROPHY EARNED',
-      `${getPlayerName()} completed all 10 levels with ${finalGame.score} points`,
+      `${activeGamePlayerName} completed all 10 levels with ${finalGame.score} points`,
     )
     instructions.textContent =
       'Your complete 10-level replay starts shortly — New Game is ready now'
   } else {
     showOverlay(
       'GAME OVER',
-      `${getPlayerName()} scored ${finalGame.score} and reached level ${finalGame.level}`,
+      `${activeGamePlayerName} scored ${finalGame.score} and reached level ${finalGame.level}`,
     )
     instructions.textContent =
       'Your 2× replay starts shortly — New Game is ready now'
@@ -1114,36 +1198,57 @@ function setSoundEnabled(enabled: boolean): void {
   soundButton.setAttribute('aria-pressed', String(enabled))
 }
 
+function normalizePlayerName(name: string): string {
+  const normalized = name
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_PLAYER_NAME_LENGTH)
+  return normalized || 'PLAYER'
+}
+
 function getPlayerName(): string {
-  const candidate = window.localStorage.getItem('snakebite.player-name')
-  if (candidate !== null && candidate.trim() !== '') {
-    return candidate.trim()
+  const stored = window.localStorage.getItem('snakebite.player-name') ?? 'PLAYER'
+  const normalized = normalizePlayerName(stored)
+  if (stored !== normalized) {
+    window.localStorage.setItem('snakebite.player-name', normalized)
   }
-  const defaultName = 'PLAYER'
-  window.localStorage.setItem('snakebite.player-name', defaultName)
-  return defaultName
+  return normalized
 }
 
 function setPlayerName(name: string): void {
-  const nextName = name.trim() || 'PLAYER'
+  const nextName = normalizePlayerName(name)
   window.localStorage.setItem('snakebite.player-name', nextName)
   playerName.textContent = nextName
 }
 
-// Embedded browsers and some privacy modes make window.prompt throw. Renaming
-// is a convenience, so a failure here must never abort the rest of start-up.
-function promptForPlayerName(): void {
-  let answer: string | null = null
-  try {
-    answer = window.prompt('Choose a player name', getPlayerName())
-  } catch {
-    playerName.disabled = true
-    playerName.title = 'Renaming is not supported in this browser'
+/** Replace the HUD label in place so naming never leaves the game cabinet. */
+function beginPlayerNameEdit(): void {
+  if (
+    editingPlayerName ||
+    sequencePhase !== 'none' ||
+    (state?.started === true && !state.demo_mode)
+  ) {
     return
   }
-  if (answer !== null) {
-    setPlayerName(answer)
+  editingPlayerName = true
+  playerNameInput.value = getPlayerName()
+  playerName.hidden = true
+  playerNameInput.hidden = false
+  playerNameInput.focus()
+  playerNameInput.select()
+}
+
+function finishPlayerNameEdit(save: boolean): void {
+  if (!editingPlayerName) {
+    return
   }
+  editingPlayerName = false
+  if (save) {
+    setPlayerName(playerNameInput.value)
+  }
+  playerNameInput.hidden = true
+  playerName.hidden = false
 }
 
 function showOverlay(title: string, message: string): void {
@@ -1163,6 +1268,9 @@ function showClientError(error: unknown): void {
 }
 
 window.addEventListener('keydown', (event) => {
+  if (event.target instanceof HTMLInputElement) {
+    return
+  }
   const direction = directionForKey(event.key)
   if (direction !== undefined) {
     event.preventDefault()
@@ -1226,7 +1334,21 @@ document
   })
 
 playerName.addEventListener('click', () => {
-  promptForPlayerName()
+  beginPlayerNameEdit()
+})
+
+playerNameInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    finishPlayerNameEdit(true)
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    finishPlayerNameEdit(false)
+  }
+})
+
+playerNameInput.addEventListener('blur', () => {
+  finishPlayerNameEdit(true)
 })
 
 async function togglePause(): Promise<void> {

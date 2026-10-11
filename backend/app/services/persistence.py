@@ -21,21 +21,13 @@ class PersistenceService:
 
         await self._database.connect()
         await self._database.initialize()
-        player = await self._database.fetch_one(
-            "SELECT id FROM players WHERE name = ?",
-            (self._player_name,),
-        )
-        if player is None:
-            self._player_id = await self._database.execute(
-                "INSERT INTO players (name) VALUES (?)",
-                (self._player_name,),
-            )
-        else:
-            self._player_id = int(player["id"])
+        self._player_id = await self._resolve_player(self._player_name)
 
-    async def start_game(self) -> int:
-        """Create a persistent active game and return its id."""
+    async def start_game(self, player_name: str | None = None) -> int:
+        """Create a persistent active game for the selected player."""
 
+        effective_name = player_name if player_name is not None else self._player_name
+        self._player_id = await self._resolve_player(effective_name)
         player_id = self._require_player()
         if self._current_game_id is not None:
             await self._database.execute(
@@ -62,10 +54,11 @@ class PersistenceService:
         await self._database.execute(
             """
             UPDATE games
-            SET status = 'completed', ended_at = ?, score = ?
+            SET status = 'completed', ended_at = ?, score = ?,
+                final_level = ?, game_won = ?
             WHERE id = ? AND status = 'active'
             """,
-            (self._now(), state.score, game_id),
+            (self._now(), state.score, state.level, int(state.game_won), game_id),
         )
         await self._database.execute(
             """
@@ -84,6 +77,8 @@ class PersistenceService:
             SELECT scores.score, players.name, scores.created_at
             FROM scores
             JOIN players ON players.id = scores.player_id
+            JOIN games ON games.id = scores.game_id
+            WHERE games.game_won = 1 AND games.final_level = 10
             ORDER BY scores.score DESC, scores.created_at ASC
             LIMIT ?
             """,
@@ -94,6 +89,21 @@ class PersistenceService:
         """Close the underlying database."""
 
         await self._database.close()
+
+    async def _resolve_player(self, name: str) -> int:
+        """Return one player id, creating it with bound SQL when necessary."""
+
+        await self._database.execute(
+            "INSERT OR IGNORE INTO players (name) VALUES (?)",
+            (name,),
+        )
+        player = await self._database.fetch_one(
+            "SELECT id FROM players WHERE name = ?",
+            (name,),
+        )
+        if player is None:
+            raise RuntimeError("Player could not be resolved")
+        return int(player["id"])
 
     def _require_player(self) -> int:
         if self._player_id is None:

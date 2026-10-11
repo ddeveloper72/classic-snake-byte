@@ -221,6 +221,63 @@ canvas {
   margin-top: 1.4rem;
 }
 
+.leaderboard {
+  width: 100%;
+  max-width: 34rem;
+  border: 1px solid #255f34;
+  background: rgba(4, 20, 10, 0.82);
+}
+
+.leaderboard h2 {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #255f34;
+  color: #ffb000;
+  font-size: 0.82rem;
+  font-weight: 400;
+  letter-spacing: 0.15em;
+  text-align: center;
+}
+
+.leaderboard ol {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0.55rem 0.75rem 0.55rem 2.4rem;
+  color: #70ff8e;
+  font-size: 0.78rem;
+}
+
+.leaderboard li {
+  padding-left: 0.25rem;
+}
+
+.leaderboard li:not(.leaderboard-empty) {
+  display: list-item;
+}
+
+.leaderboard li span {
+  display: inline-block;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.leaderboard li strong {
+  float: right;
+  color: #ffcf5c;
+  font-weight: 400;
+}
+
+.leaderboard-empty {
+  list-style: none;
+  margin-left: -1.65rem;
+  color: #5caf70;
+  text-align: center;
+}
+
 .button-row {
   display: flex;
   justify-content: center;
@@ -228,13 +285,21 @@ canvas {
   flex-wrap: wrap;
 }
 
-.player-name {
-  border: 1px dashed transparent;
+.player-name,
+.player-name-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
   background: none;
-  padding: 0 0.2rem;
-  color: inherit;
+  padding: 0.15rem 0.25rem;
+  color: #ffb000;
   font: inherit;
   font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: inherit;
+}
+
+.player-name {
   cursor: pointer;
 }
 
@@ -242,6 +307,26 @@ canvas {
 .player-name:focus-visible {
   border-color: #70ff8e;
   color: #fff;
+}
+
+.player-name-input {
+  border-color: #70ff8e;
+  outline: 0;
+  background: #020905;
+  box-shadow:
+    inset 0 0 0 1px #173d22,
+    0 0 12px rgba(112, 255, 142, 0.24);
+  caret-color: #70ff8e;
+}
+
+.player-name-input::selection {
+  color: #020905;
+  background: #70ff8e;
+}
+
+.player-name[hidden],
+.player-name-input[hidden] {
+  display: none;
 }
 
 .difficulty {
@@ -481,11 +566,13 @@ canvas {
   }
 
   .score-panel strong,
-  .score-panel .player-name {
+  .score-panel .player-name,
+  .score-panel .player-name-input {
     font-size: clamp(1.2rem, 1.6vw, 1.7rem);
   }
 
-  .score-panel .player-name {
+  .score-panel .player-name,
+  .score-panel .player-name-input {
     min-height: 0;
     padding: 0;
     text-align: left;

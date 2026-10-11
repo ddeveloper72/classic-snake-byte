@@ -54,7 +54,7 @@ async def start_game(request: StartGameRequest | None = None) -> GameStateRespon
     """Start a new game, optionally at a player-selected difficulty."""
 
     settings = request or StartGameRequest()
-    await require_persistence().start_game()
+    await require_persistence().start_game(settings.player_name)
     await game_service.start_game(settings.difficulty, settings.plums)
     return state_response()
 

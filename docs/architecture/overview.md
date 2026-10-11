@@ -82,6 +82,20 @@ released over later ticks, avoiding duplicate body coordinates.
 The game loop sleeps on a separate, shorter idle interval when no game is
 running, so a slow difficulty does not delay demo-mode detection.
 
+## Player identity and winner persistence
+
+The browser normalizes a 24-character player name, keeps it in `localStorage`,
+and sends it only when starting a game. Pydantic independently validates the
+same boundary. Persistence resolves the name with bound SQLite parameters and
+associates that player with the new game; the configured `PLAYER_NAME` remains
+the fallback for clients that omit it.
+
+Completed games persist their authoritative final level and victory flag. The
+public leaderboard joins scores back to games and admits only level-10 wins,
+then returns the highest ten. Additive startup migration gives older databases
+these columns with historical results marked as non-wins because a score alone
+cannot prove victory.
+
 ## Learning note
 
 The engine is deliberately independent of FastAPI. A game loop, a terminal

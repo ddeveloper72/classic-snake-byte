@@ -6,7 +6,7 @@ Learning note:
     also validates input and generates the OpenAPI schema used by FastAPI.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.domain.game import (
     MAX_DIFFICULTY,
@@ -47,6 +47,25 @@ class StartGameRequest(BaseModel):
         le=MAX_PLUMS,
         description="Perilous plums that bounce around the board, 0 to 2.",
     )
+    player_name: str | None = Field(
+        default=None,
+        max_length=24,
+        description="Player name used for completed scores; defaults to PLAYER_NAME.",
+    )
+
+    @field_validator("player_name", mode="before")
+    @classmethod
+    def normalize_player_name(cls, value: object) -> object:
+        """Normalize visible spacing and reject terminal/control characters."""
+
+        if value is None or not isinstance(value, str):
+            return value
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("player_name cannot contain control characters")
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("player_name cannot be empty")
+        return normalized
 
 
 class GameStateResponse(BaseModel):

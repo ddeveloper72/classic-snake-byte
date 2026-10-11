@@ -54,6 +54,25 @@ def test_start_rejects_an_out_of_range_difficulty(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_start_treats_sql_syntax_in_player_name_as_plain_data(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/game/start",
+        json={"player_name": "Robert');--"},
+    )
+
+    assert response.status_code == 200
+    assert client.get("/scores").status_code == 200
+    assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_start_rejects_invalid_player_names(client: TestClient) -> None:
+    for player_name in ("   ", "line\nbreak", "x" * 25):
+        response = client.post("/game/start", json={"player_name": player_name})
+        assert response.status_code == 422
+
+
 def test_home_stops_the_game_and_returns_a_fresh_ready_state(
     client: TestClient,
 ) -> None:

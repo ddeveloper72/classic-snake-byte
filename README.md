@@ -9,7 +9,7 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Selectable arrow-key, WASD, or either-scheme steering
 - Zero to two bouncing perilous plums as a second difficulty dial
 - Fifteen-apple levels with accelerating snake growth and progressive spawning
-- Ten handcrafted level mazes followed by a repeating obstacle cycle
+- Ten handcrafted level mazes ending in a level-10 trophy victory
 - Web Audio sound cues modelled on the original single-speaker beeps
 - Idle demo autoplay at randomized difficulty levels
 - TypeScript, Vite, and Canvas browser client
@@ -138,8 +138,8 @@ at 2× speed. This is a recording of the real server result rather than a second
 simulation that could drift from it.
 
 `NEW GAME` remains available throughout either result presentation and replay,
-and cancels the sequence immediately. If the player does nothing, the client calls
-`POST /game/home` when the replay finishes. The server stops any attract-mode
+and cancels the sequence immediately. If the player does nothing, the client
+calls `POST /game/home` when the replay finishes. The server stops any attract-mode
 game that may have started in the background and returns a fresh inactive state,
 allowing the browser to show the normal `READY?` screen.
 
@@ -172,9 +172,99 @@ Open `http://127.0.0.1:5173` to play. The Vite development server proxies game
 HTTP and WebSocket traffic to FastAPI, so the browser does not need a separate
 CORS configuration.
 
-Open `http://127.0.0.1:8000/docs` for generated API documentation.
+## Architecture
 
-Run checks:
+Snakebite is a modular monolith with a strict server-authoritative boundary:
+
+```mermaid
+flowchart LR
+    Browser[TypeScript + Canvas browser] -->|intent: turn, pause, start| API[FastAPI adapters]
+    API --> Loop[Async game-loop service]
+    Loop --> Engine[Framework-independent domain engine]
+    Loop --> Store[SQLite persistence]
+    Engine -->|complete state snapshots| Loop
+    Loop -->|WebSocket broadcasts| Browser
+```
+
+The browser never decides whether a move is legal, where an apple appears, how
+much the snake grows, whether a plum rebounds, or whether a score qualifies as
+a win. It sends intentions and renders complete snapshots returned by the
+backend. This keeps keyboard, touch, demo, replay, and future clients on the same
+rules.
+
+The post-game replay is the exception only in presentation, not authority: it
+records snapshots already accepted from the server and re-renders them at 2×.
+It does not simulate a second game.
+
+### Project layout
+
+```text
+backend/
+  app/
+    api/            FastAPI HTTP and WebSocket adapters
+    domain/         Framework-independent game rules
+    models/         Validated external contracts
+    repositories/   SQLite connection boundary and migrations
+    services/       Game-loop and persistence orchestration
+  tests/             Domain, transport, and persistence tests
+frontend/
+  public/             Browser assets, including the snake favicon
+  src/                Canvas renderer, controls, audio, replay, and styles
+docs/
+  adr/                 Architecture decision records
+  architecture/        System and hosted-database planning
+```
+
+## HTTP and WebSocket API
+
+FastAPI publishes interactive OpenAPI documentation at
+`http://127.0.0.1:8000/docs` while the backend is running.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Process readiness check |
+| `POST` | `/game/start` | Start a player game with name, speed, and plum settings |
+| `GET` | `/game/state` | Read the latest authoritative snapshot |
+| `POST` | `/game/input` | Submit a cardinal direction |
+| `POST` | `/game/pause` | Pause active play and its pressure timer |
+| `POST` | `/game/resume` | Resume active play |
+| `POST` | `/game/home` | Stop the session and return a fresh READY state |
+| `GET` | `/scores` | Return the ten highest level-10 winners |
+| WebSocket | `/ws/game` | Stream state changes and accept direction intentions |
+
+## Player identity and winners leaderboard
+
+Clicking the PLAYER value turns that value into an inline, cabinet-styled text
+field. Enter saves, Escape cancels, and leaving the field saves. Names are
+normalized and limited to 24 characters in both the browser and API. The browser
+stores the preference in `localStorage` and sends it with each new-game request.
+
+The winners table contains at most ten entries, ordered by score descending and
+then completion time. A score qualifies only when the authoritative final state
+says both `game_won = true` and `final_level = 10`; losses remain available as
+game history but cannot enter the winners table.
+
+## Configuration and local data
+
+Copy `.env.example` to `.env` only when overriding defaults:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `sqlite:///./data/snakebite.db` | Local SQLite database path |
+| `PLAYER_NAME` | `Player` | Fallback name when a client omits one |
+
+`.env`, `.env.*`, virtual environments, build output, and local database files
+are ignored by Git. SQLite requires no password. Do not commit hosted-database
+credentials; supply them through the deployment environment or a secret store.
+
+The schema initializer performs additive migration for older local databases,
+including the victory metadata used by the winners table. Historical rows whose
+outcome is unknown are deliberately treated as non-wins rather than inferred
+from score.
+
+## Testing and quality checks
+
+From the repository root with `.venv` active:
 
 ```powershell
 python -m pytest
@@ -183,412 +273,40 @@ cd frontend
 npm run build
 ```
 
-Hosted database support is the next planned infrastructure slice. See
-[`docs/architecture/overview.md`](docs/architecture/overview.md).
-Project Goal
-
-Recreate the classic Apple IIe game "Snakebite" using modern software engineering practices while preserving the original gameplay experience.
-
-The project serves two purposes:
-
-Deliver a fully playable game.
-Serve as an educational reference for learning modern Python 3.15 architecture, FastAPI, testing, and AI-assisted development.
-Core Vision
-
-The game should feel like:
-
-Apple IIe Snakebite
-Fast
-Responsive
-Retro-inspired
-
-but be implemented using:
-
-Python 3.15
-FastAPI
-Modern web technologies
-Clean Architecture principles
-Test Driven Development (when practical)
-Learning Requirement
-
-Every significant implementation should include:
-
-Learning Note
-
-Explain:
-
-Why this approach was chosen
-Alternative approaches
-Modern best practice
-Historical context if relevant
-
-Example:
-
-Python
-# Learning Note
-# We use Pydantic models here instead of plain dictionaries.
-# Benefits:
-# - Type safety
-# - Validation
-# - Better IDE support
-# - OpenAPI generation
-Development Phases
-Phase 1 - Research
-
-Study:
-
-Original Apple IIe Snakebite
-Gameplay mechanics
-Scoring
-Controls
-Difficulty progression
-
-Deliverables:
-
-Plain Text
-/docs/research
-
-containing:
-
-gameplay.md
-rules.md
-scoring.md
-Phase 2 - Architecture
-
-Create:
-
-Plain Text
-/docs/architecture
-
-Produce:
-
-System Overview
-Mermaid diagram
-Domain Model
-
-Define:
-
-Plain Text
-Snake
-Food
-GameBoard
-Direction
-GameState
-Score
-Player
-Phase 3 - Backend Development
-
-Build:
-
-Plain Text
-/backend
-
-using:
-
-Python
-Python 3.15
-FastAPI
-Pydantic
-PyTest
-Required Structure
-Plain Text
-backend/
- 
-app/
-├── api/
-├── domain/
-├── services/
-├── models/
-├── repositories/
-├── tests/
-└── main.py
-Domain Driven Design
-
-Implement:
-
-Python
-Snake
-GameBoard
-CollisionDetector
-FoodGenerator
-ScoreCalculator
-
-Business logic must not be placed inside API endpoints.
-
-Endpoints should be thin.
-
-Game Engine
-
-Create:
-
-Python
-GameEngine
-
-Responsibilities:
-
-move snake
-detect collisions
-spawn food
-update score
-manage speed increase
-detect game over
-
-Engine must be testable independently.
-
-API Requirements
-
-Implement:
-
-Start Game
-HTTP
-POST /game/start
-Get State
-HTTP
-GET /game/state
-Move Snake
-HTTP
-POST /game/input
-Pause
-HTTP
-POST /game/pause
-``
-Resume
-HTTP
-POST /game/resume
-WebSocket Support
-
-Implement:
-
-Plain Text
-/ws/game
-
-Requirements:
-
-real-time updates
-low latency
-server authoritative state
-Frontend
-
-Create:
-
-Plain Text
-/frontend
-
-using:
-
-Plain Text
-TypeScript
-Vite
-Canvas API
-
-Avoid game frameworks initially.
-
-Implement rendering manually.
-
-Educational purpose: understand the game loop.
-
-Graphics Style
-
-Theme:
-
-Plain Text
-Apple IIe Inspired
-Modern Crisp Rendering
-Retro Colour Palette
-
-Assets:
-
-Plain Text
-Snake Head
-Snake Body
-Food
-Background Grid
-Game Over Screen
-
-Generate placeholder assets first.
-
-Persistence
-
-Use:
-
-Plain Text
-SQLite
-``
-
-Tables:
-
-Plain Text
-players
-scores
-games
-Testing
-
-Target:
-
-Plain Text
-90% coverage
-
-Test:
-
-Unit Tests
-Plain Text
-Game Engine
-Movement Logic
-Collision Detection
-Scoring
-Integration Tests
-Plain Text
-API
-WebSockets
-Database
-``
-CI/CD
-
-Create:
-
-Plain Text
-.github/workflows
-
-Pipeline:
-
-Lint
-Type Check
-Unit Test
-Integration Test
-Build Docker Image
-Quality Standards
-
-Require:
-
-Plain Text
-Ruff
-MyPy
-PyTest
-Pre-Commit
-
-All code must pass CI.
-
-Agent Rules
-
-When generating code:
-
-Explain reasoning first.
-Generate tests before implementation where practical.
-Include learning notes.
-Prefer readability over cleverness.
-Follow SOLID principles.
-Avoid premature optimisation.
-Document architectural decisions.
-Architecture Decision Records
-
-Create:
-
-Plain Text
-/docs/adr
-
-Examples:
-
-Plain Text
-ADR-001-use-fastapi.md
-ADR-002-use-websockets.md
-ADR-003-use-ddd.md
-ADR-004-use-typescript.md
-
-Each ADR must contain:
-
-Context
-Decision
-Alternatives
-Consequences
-Educational Mode
-
-Whenever a file is created:
-
-Include a section:
-
-Markdown
-## What You Learned
-
-explaining:
-
-New concepts
-Design patterns used
-Python features introduced
-Recommended further reading
-Links to official documentation
-
----
-
-# Suggested Copilot Agent Resources
-
-I would add these files alongside the specification:
-
-```text
-.github/
-├── copilot-instructions.md
-├── prompts/
-│   ├── architect.md
-│   ├── backend-agent.md
-│   ├── frontend-agent.md
-│   ├── testing-agent.md
-│   └── learning-agent.md
-
-copilot-instructions.md
-Markdown
-# Project Rules
- 
-Act as a senior software architect.
- 
-Priorities:
- 
-1. Maintainability
-2. Testability
-3. Learning value
-4. Modern Python practices
- 
-Always explain decisions.
- 
-Never introduce dependencies without justification.
- 
-Whenever code is generated:
-- explain why
-- explain trade-offs
-- explain alternatives
-Learning Roadmap
-
-As you work through the project, I would expect you to learn:
-
-Week 1
-FastAPI fundamentals
-Dependency Injection
-Pydantic
-Async programming
-Week 2
-Game loops
-Canvas rendering
-WebSockets
-State management
-Week 3
-Docker
-CI/CD
-Testing
-Week 4
-Architecture
-Domain Driven Design
-Production deployment
-One enhancement I would strongly consider
-
-Rather than reproducing only the original Apple IIe version, build the architecture so that Snakebite Classic and Snakebite Enhanced are game modes:
-
-Plain Text
-Classic Mode
-├── Apple IIe rules
-├── Original speed
-├── Original scoring
- 
-Enhanced Mode
-├── Power-ups
-├── Multiple food types
-├── Obstacles
-├── Leaderboards
-├── Achievements
+The tests cover movement, collision, accelerated growth, apple placement, plum
+physics, all ten maze silhouettes, exit progression, time pressure, victory,
+REST/WebSocket contracts, persistence migrations, winner qualification, ranking
+limits, and SQL-injection regression payloads.
+
+### Security properties
+
+- All database values use SQLite `?` parameters; player input is never joined
+  into SQL text.
+- Player-name payloads containing SQL punctuation are stored as literal data.
+- API validation rejects empty, overlong, and control-character names.
+- Browser names and winner entries are rendered with `textContent`, not
+  `innerHTML`, preventing markup execution.
+- Game movement, scores, level completion, and winner qualification remain
+  server-authoritative.
+- Start-game settings are bounded by Pydantic contracts.
+
+SQLite identifiers used by schema migration are fixed application constants,
+not user-controlled strings.
+
+## Design documentation
+
+- [Architecture overview](docs/architecture/overview.md)
+- [Hosted-database migration plan](docs/architecture/hosted-database-migration.md)
+- [Project specification](docs/project-specification.md)
+- [ADR-001: modular monolith](docs/adr/ADR-001-modular-monolith.md)
+- [ADR-002: Canvas rendering](docs/adr/ADR-002-use-canvas.md)
+- [ADR-003: server-authoritative game loop](docs/adr/ADR-003-server-authoritative-game-loop.md)
+- [ADR-004: SQLite persistence](docs/adr/ADR-004-sqlite-persistence.md)
+
+## Current scope and roadmap
+
+The local playable game, ten-level victory path, winners table, idle demo,
+accessibility controls, replay, persistence, and test suite are implemented.
+The next infrastructure slice is the planned hosted-database migration described
+above. Lives (`SNAKES LEFT`) and a separate live high-score HUD remain potential
+original-game enhancements; they are not silently represented as complete.
