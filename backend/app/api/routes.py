@@ -1,4 +1,4 @@
-"""Thin HTTP and WebSocket adapters for the Snakebite game engine.
+"""Thin HTTP and WebSocket adapters for the Snakebite game service.
 
 Learning note:
     Endpoints coordinate transport concerns only. All movement, collision, and
@@ -6,26 +6,35 @@ Learning note:
     subtly different sets of rules for REST and WebSocket clients.
 """
 
+import asyncio
+from contextlib import suppress
+from typing import Any
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.app.domain.game import Direction, GameEngine
+from backend.app.domain.game import Direction
 from backend.app.models.game import GameStateResponse, InputRequest
+from backend.app.services.game_loop import GameLoopService, StateSignal
 
 router = APIRouter()
-engine = GameEngine(seed=42)
+game_service = GameLoopService()
 
 
 def state_response() -> GameStateResponse:
     """Convert the engine's current state to its public representation."""
 
-    return GameStateResponse.from_domain(engine.state)
+    return GameStateResponse.from_domain(
+        game_service.state,
+        started=game_service.started,
+    )
 
 
 @router.post("/game/start", response_model=GameStateResponse)
-def start_game() -> GameStateResponse:
+async def start_game() -> GameStateResponse:
     """Start a new game and return its initial state."""
 
-    return GameStateResponse.from_domain(engine.reset())
+    await game_service.start_game()
+    return state_response()
 
 
 @router.get("/game/state", response_model=GameStateResponse)
@@ -36,44 +45,75 @@ def get_state() -> GameStateResponse:
 
 
 @router.post("/game/input", response_model=GameStateResponse)
-def input_direction(request: InputRequest) -> GameStateResponse:
+async def input_direction(request: InputRequest) -> GameStateResponse:
     """Apply a player's direction request and return the resulting state."""
 
-    return GameStateResponse.from_domain(engine.turn(request.direction))
+    await game_service.turn(request.direction)
+    return state_response()
 
 
 @router.post("/game/pause", response_model=GameStateResponse)
-def pause_game() -> GameStateResponse:
+async def pause_game() -> GameStateResponse:
     """Pause the current game."""
 
-    return GameStateResponse.from_domain(engine.pause())
+    await game_service.pause()
+    return state_response()
 
 
 @router.post("/game/resume", response_model=GameStateResponse)
-def resume_game() -> GameStateResponse:
+async def resume_game() -> GameStateResponse:
     """Resume the current game."""
 
-    return GameStateResponse.from_domain(engine.resume())
+    await game_service.resume()
+    return state_response()
 
 
 @router.websocket("/ws/game")
 async def game_socket(websocket: WebSocket) -> None:
-    """Exchange direction or tick messages for authoritative state updates.
+    """Receive player input and stream authoritative state updates.
 
-    The server sends the current state immediately after connecting and after
-    every accepted client message. A future game-loop service will own ticks;
-    accepting explicit tick messages keeps this first vertical slice testable.
+    The server sends the current state immediately, then broadcasts changes
+    produced by input, lifecycle actions, and autonomous game ticks.
     """
 
     await websocket.accept()
+    signals = game_service.subscribe()
+    sender = asyncio.create_task(_send_updates(websocket, signals))
     try:
         await websocket.send_json(state_response().model_dump(mode="json"))
         while True:
             message = await websocket.receive_json()
-            if "direction" in message:
-                engine.turn(Direction(message["direction"]))
-            elif message.get("action") == "tick":
-                engine.tick()
-            await websocket.send_json(state_response().model_dump(mode="json"))
-    except (WebSocketDisconnect, ValueError):
+            if not await _apply_socket_input(websocket, message):
+                return
+    except WebSocketDisconnect:
         return
+    finally:
+        game_service.unsubscribe(signals)
+        sender.cancel()
+        with suppress(asyncio.CancelledError):
+            await sender
+
+
+async def _send_updates(websocket: WebSocket, signals: StateSignal) -> None:
+    """Send the latest state whenever the game service signals a change."""
+
+    while True:
+        await signals.get()
+        await websocket.send_json(state_response().model_dump(mode="json"))
+
+
+async def _apply_socket_input(websocket: WebSocket, message: Any) -> bool:
+    """Validate and apply one WebSocket direction message."""
+
+    if not isinstance(message, dict) or not isinstance(message.get("direction"), str):
+        await websocket.close(code=1008, reason="A direction message is required")
+        return False
+
+    try:
+        direction = Direction(message["direction"])
+    except ValueError:
+        await websocket.close(code=1008, reason="Unknown direction")
+        return False
+
+    await game_service.turn(direction)
+    return True

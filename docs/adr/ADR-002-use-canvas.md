@@ -9,8 +9,7 @@ teach the underlying browser APIs.
 ## Decision
 
 Use TypeScript, Vite, and the Canvas 2D API without a game framework. The client
-renders state received from FastAPI and sends only player intentions and
-temporary tick messages.
+renders state received from FastAPI and sends only player intentions.
 
 ## Alternatives
 
@@ -24,6 +23,6 @@ temporary tick messages.
 ## Consequences
 
 The renderer stays compact and the backend remains the source of truth. Canvas
-content needs explicit accessible controls and labels. Tick ownership still
-needs to move from the browser to a server-side loop before supporting several
-simultaneous observers.
+content needs explicit accessible controls and labels. The client depends on
+WebSocket broadcasts for animation rather than maintaining a separate game
+clock.

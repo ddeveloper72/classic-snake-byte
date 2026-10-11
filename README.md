@@ -1,10 +1,10 @@
- # Snakebite Reimagined
+# Snakebite Reimagined
 
 The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 
 - Python 3.15 and FastAPI backend
 - Framework-independent, typed game engine
-- REST endpoints and a server-authoritative WebSocket
+- Autonomous server game loop and authoritative WebSocket broadcasts
 - TypeScript, Vite, and Canvas browser client
 - Keyboard and touch-friendly controls
 - Pytest and Ruff development tooling
@@ -45,8 +45,8 @@ cd frontend
 npm run build
 ```
 
-SQLite repositories, score persistence, an autonomous server game loop, and
-difficulty progression are subsequent vertical slices. See
+SQLite repositories, score persistence, and difficulty progression are the
+next vertical slices. See
 [`docs/architecture/overview.md`](docs/architecture/overview.md).
 Project Goal
 

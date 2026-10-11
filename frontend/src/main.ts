@@ -4,7 +4,7 @@
  * Learning note:
  * Canvas is used instead of a game framework because Snakebite needs only a
  * small grid renderer. The backend remains authoritative: the browser sends
- * intentions and ticks, then renders only state returned by the server.
+ * player intentions, then renders only state broadcast by the server.
  */
 import './style.css'
 
@@ -18,11 +18,11 @@ interface GameState {
   food: [number, number]
   direction: Direction
   score: number
+  started: boolean
   paused: boolean
   game_over: boolean
 }
 
-const TICK_INTERVAL_MS = 160
 const CANVAS_WIDTH = 720
 const CANVAS_HEIGHT = 480
 const DIRECTIONS: readonly Direction[] = ['up', 'right', 'down', 'left']
@@ -91,8 +91,6 @@ const pauseButton = requireElement<HTMLButtonElement>('#pause')
 
 let socket: WebSocket | null = null
 let state: GameState | null = null
-let hasStarted = false
-let tickTimer: number | null = null
 let reconnectTimer: number | null = null
 
 function requireElement<T extends Element>(selector: string): T {
@@ -136,14 +134,12 @@ function connect(): void {
       }
       state = nextState
       render(nextState)
-      syncTickTimer()
     } catch (error) {
       showClientError(error)
     }
   })
 
   socket.addEventListener('close', () => {
-    stopTickTimer()
     setConnectionStatus('disconnected', 'Server disconnected — retrying')
     showOverlay('CONNECTION LOST', 'Waiting for the game server...')
     reconnectTimer = window.setTimeout(connect, 1500)
@@ -172,6 +168,7 @@ function isGameState(value: unknown): value is GameState {
     DIRECTIONS.includes(candidate.direction as Direction) &&
     Number.isInteger(candidate.score) &&
     Number(candidate.score) >= 0 &&
+    typeof candidate.started === 'boolean' &&
     typeof candidate.paused === 'boolean' &&
     typeof candidate.game_over === 'boolean'
   )
@@ -204,36 +201,15 @@ async function postGameAction(action: 'start' | 'pause' | 'resume'): Promise<voi
   if (!isGameState(nextState)) {
     throw new Error('The game server returned an invalid state.')
   }
-  if (action === 'start') {
-    hasStarted = true
-  }
   state = nextState
   render(nextState)
-  syncTickTimer()
 }
 
 function turn(direction: Direction): void {
-  if (!hasStarted || state === null || state.paused || state.game_over) {
+  if (state === null || !state.started || state.paused || state.game_over) {
     return
   }
   send({ direction })
-}
-
-function syncTickTimer(): void {
-  if (!hasStarted || state === null || state.paused || state.game_over) {
-    stopTickTimer()
-    return
-  }
-  if (tickTimer === null) {
-    tickTimer = window.setInterval(() => send({ action: 'tick' }), TICK_INTERVAL_MS)
-  }
-}
-
-function stopTickTimer(): void {
-  if (tickTimer !== null) {
-    window.clearInterval(tickTimer)
-    tickTimer = null
-  }
 }
 
 function render(game: GameState): void {
@@ -250,10 +226,10 @@ function render(game: GameState): void {
   })
 
   score.textContent = game.score.toString().padStart(6, '0')
-  pauseButton.disabled = !hasStarted || game.game_over
+  pauseButton.disabled = !game.started || game.game_over
   pauseButton.textContent = game.paused ? 'RESUME' : 'PAUSE'
 
-  if (!hasStarted) {
+  if (!game.started) {
     showOverlay('READY?', 'Press New Game to begin')
   } else if (game.game_over) {
     showOverlay('GAME OVER', 'Press New Game to try again')
@@ -352,7 +328,7 @@ pauseButton.addEventListener('click', () => {
 })
 
 async function togglePause(): Promise<void> {
-  if (!hasStarted || state === null || state.game_over) {
+  if (state === null || !state.started || state.game_over) {
     return
   }
   try {
@@ -366,7 +342,6 @@ window.addEventListener('beforeunload', () => {
   if (reconnectTimer !== null) {
     window.clearTimeout(reconnectTimer)
   }
-  stopTickTimer()
   socket?.close()
 })
 

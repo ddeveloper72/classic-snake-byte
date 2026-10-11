@@ -1,30 +1,42 @@
 """Integration tests for the REST and WebSocket transport contracts."""
 
+from collections.abc import Iterator
+
+import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    """Run each test with the FastAPI lifespan and game loop active."""
+
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-def test_health_endpoint() -> None:
+def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_start_and_input_endpoints() -> None:
+def test_start_and_input_endpoints(client: TestClient) -> None:
     start = client.post("/game/start")
     move = client.post("/game/input", json={"direction": "down"})
 
     assert start.status_code == 200
+    assert start.json()["started"] is True
     assert move.status_code == 200
     assert move.json()["direction"] == "down"
 
 
-def test_websocket_returns_authoritative_state() -> None:
+def test_websocket_returns_authoritative_state(client: TestClient) -> None:
     client.post("/game/start")
+    client.post("/game/pause")
     with client.websocket_connect("/ws/game") as websocket:
         initial = websocket.receive_json()
         websocket.send_json({"direction": "up"})
@@ -33,3 +45,24 @@ def test_websocket_returns_authoritative_state() -> None:
     assert initial["score"] == 0
     assert updated["direction"] == "up"
     assert updated["snake"][0] == initial["snake"][0]
+
+
+def test_websocket_receives_autonomous_game_ticks(client: TestClient) -> None:
+    with client.websocket_connect("/ws/game") as websocket:
+        websocket.receive_json()
+        started = client.post("/game/start").json()
+        websocket.receive_json()
+        ticked = websocket.receive_json()
+
+    assert ticked["snake"][0][0] == started["snake"][0][0] + 1
+    assert ticked["snake"][0][1] == started["snake"][0][1]
+
+
+def test_websocket_rejects_client_tick_messages(client: TestClient) -> None:
+    with client.websocket_connect("/ws/game") as websocket:
+        websocket.receive_json()
+        websocket.send_json({"action": "tick"})
+        with pytest.raises(WebSocketDisconnect) as disconnect:
+            websocket.receive_json()
+
+    assert disconnect.value.code == 1008

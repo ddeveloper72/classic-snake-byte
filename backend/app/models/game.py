@@ -28,11 +28,12 @@ class GameStateResponse(BaseModel):
     food: tuple[int, int]
     direction: Direction
     score: int
+    started: bool
     paused: bool
     game_over: bool
 
     @classmethod
-    def from_domain(cls, state: GameState) -> GameStateResponse:
+    def from_domain(cls, state: GameState, *, started: bool) -> GameStateResponse:
         """Translate internal domain objects into the public API contract."""
 
         return cls(
@@ -42,6 +43,7 @@ class GameStateResponse(BaseModel):
             food=(state.food.x, state.food.y),
             direction=state.snake.direction,
             score=state.score,
+            started=started,
             paused=state.paused,
             game_over=state.game_over,
         )
