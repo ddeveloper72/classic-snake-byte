@@ -1,16 +1,11 @@
-"""Thin HTTP and WebSocket adapters for the Snakebite game service.
-
-Learning note:
-    Endpoints coordinate transport concerns only. All movement, collision, and
-    scoring decisions remain in ``GameEngine``, which avoids maintaining two
-    subtly different sets of rules for REST and WebSocket clients.
-"""
+"""HTTP and WebSocket adapters for independently owned browser game sessions."""
 
 import asyncio
 from contextlib import suppress
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from backend.app.domain.game import Direction
 from backend.app.models.game import (
@@ -19,129 +14,193 @@ from backend.app.models.game import (
     ScoreResponse,
     StartGameRequest,
 )
-from backend.app.services.game_loop import GameLoopService, StateSignal
-from backend.app.services.persistence import PersistenceService
+from backend.app.services.game_loop import StateSignal
+from backend.app.services.sessions import (
+    SESSION_COOKIE_NAME,
+    SESSION_TTL_SECONDS,
+    GameSession,
+    GameSessionManager,
+    SessionCapacityError,
+)
 
 router = APIRouter()
-game_service = GameLoopService()
-persistence_service: PersistenceService | None = None
+session_manager: GameSessionManager | None = None
 
 
-def state_response() -> GameStateResponse:
-    """Convert the engine's current state to its public representation."""
+def configure_sessions(manager: GameSessionManager) -> None:
+    """Attach the application-owned session manager."""
+
+    global session_manager
+    session_manager = manager
+
+
+def require_session_manager() -> GameSessionManager:
+    if session_manager is None:
+        raise RuntimeError("Game sessions have not been configured")
+    return session_manager
+
+
+async def require_game_session(request: Request, response: Response) -> GameSession:
+    """Resolve the unexposed browser credential from its HttpOnly cookie."""
+
+    try:
+        session = await require_session_manager().get_or_create(
+            request.cookies.get(SESSION_COOKIE_NAME),
+        )
+    except SessionCapacityError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    host = request.url.hostname or ""
+    secure = request.url.scheme == "https" or host not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "testserver",
+    }
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session.token,
+        max_age=SESSION_TTL_SECONDS,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="strict",
+    )
+    return session
+
+
+def state_response(session: GameSession) -> GameStateResponse:
+    """Convert this session's authoritative state to its public representation."""
 
     return GameStateResponse.from_domain(
-        game_service.state,
-        started=game_service.started,
+        session.game_service.state,
+        started=session.game_service.started,
     )
 
 
-def configure_persistence(service: PersistenceService) -> None:
-    """Attach application storage after settings are loaded."""
+@router.post("/session")
+async def create_browser_session(
+    _: Annotated[GameSession, Depends(require_game_session)],
+) -> dict[str, bool]:
+    """Establish a browser session without returning its credential to JavaScript."""
 
-    global persistence_service
-    persistence_service = service
-
-
-def require_persistence() -> PersistenceService:
-    if persistence_service is None:
-        raise RuntimeError("Persistence has not been configured")
-    return persistence_service
+    return {"ready": True}
 
 
 @router.post("/game/start", response_model=GameStateResponse)
-async def start_game(request: StartGameRequest | None = None) -> GameStateResponse:
-    """Start a new game, optionally at a player-selected difficulty."""
+async def start_game(
+    session: Annotated[GameSession, Depends(require_game_session)],
+    request: StartGameRequest | None = None,
+) -> GameStateResponse:
+    """Start a game belonging only to the authenticated browser session."""
 
     settings = request or StartGameRequest()
-    await require_persistence().start_game(settings.player_name)
-    await game_service.start_game(settings.difficulty, settings.plums)
-    return state_response()
+    async with session.action_lock:
+        await session.persistence.start_game(settings.player_name)
+        await session.game_service.start_game(settings.difficulty, settings.plums)
+    return state_response(session)
 
 
 @router.get("/game/state", response_model=GameStateResponse)
-def get_state() -> GameStateResponse:
-    """Return the latest authoritative game state."""
-
-    return state_response()
+async def get_state(
+    session: Annotated[GameSession, Depends(require_game_session)],
+) -> GameStateResponse:
+    return state_response(session)
 
 
 @router.post("/game/home", response_model=GameStateResponse)
-async def return_home() -> GameStateResponse:
-    """Stop gameplay and return the client to a fresh READY state."""
+async def return_home(
+    session: Annotated[GameSession, Depends(require_game_session)],
+) -> GameStateResponse:
+    """Stop this session's game and expose its fresh, inactive board."""
 
-    await game_service.return_home()
-    return state_response()
+    await session.game_service.return_home()
+    return state_response(session)
 
 
 @router.post("/game/input", response_model=GameStateResponse)
-async def input_direction(request: InputRequest) -> GameStateResponse:
-    """Apply a player's direction request and return the resulting state."""
-
-    await game_service.turn(request.direction)
-    return state_response()
+async def input_direction(
+    request: InputRequest,
+    session: Annotated[GameSession, Depends(require_game_session)],
+) -> GameStateResponse:
+    await session.game_service.turn(request.direction)
+    return state_response(session)
 
 
 @router.post("/game/pause", response_model=GameStateResponse)
-async def pause_game() -> GameStateResponse:
-    """Pause the current game."""
-
-    await game_service.pause()
-    return state_response()
+async def pause_game(
+    session: Annotated[GameSession, Depends(require_game_session)],
+) -> GameStateResponse:
+    await session.game_service.pause()
+    return state_response(session)
 
 
 @router.post("/game/resume", response_model=GameStateResponse)
-async def resume_game() -> GameStateResponse:
-    """Resume the current game."""
-
-    await game_service.resume()
-    return state_response()
+async def resume_game(
+    session: Annotated[GameSession, Depends(require_game_session)],
+) -> GameStateResponse:
+    await session.game_service.resume()
+    return state_response(session)
 
 
 @router.get("/scores", response_model=list[ScoreResponse])
 async def get_scores() -> list[ScoreResponse]:
-    """Return the top completed scores."""
+    """Return the shared public winners leaderboard."""
 
-    rows = await require_persistence().leaderboard()
+    manager = require_session_manager()
+    rows = await manager.leaderboard()
     return [ScoreResponse.model_validate(dict(row)) for row in rows]
 
 
 @router.websocket("/ws/game")
 async def game_socket(websocket: WebSocket) -> None:
-    """Receive player input and stream authoritative state updates.
+    """Stream and accept input only for the browser's cookie-owned game."""
 
-    The server sends the current state immediately, then broadcasts changes
-    produced by input, lifecycle actions, and autonomous game ticks.
-    """
+    session = await require_session_manager().connect(
+        websocket.cookies.get(SESSION_COOKIE_NAME),
+    )
+    if session is None:
+        await websocket.close(code=4401, reason="A valid browser session is required")
+        return
 
     await websocket.accept()
-    signals = game_service.subscribe()
-    sender = asyncio.create_task(_send_updates(websocket, signals))
+    signals = session.game_service.subscribe()
+    sender = asyncio.create_task(_send_updates(websocket, signals, session))
     try:
-        await websocket.send_json(state_response().model_dump(mode="json"))
+        await websocket.send_json(state_response(session).model_dump(mode="json"))
         while True:
             message = await websocket.receive_json()
-            if not await _apply_socket_input(websocket, message):
+            if not await _apply_socket_input(websocket, message, session):
                 return
     except WebSocketDisconnect:
         return
     finally:
-        game_service.unsubscribe(signals)
+        session.game_service.unsubscribe(signals)
         sender.cancel()
         with suppress(asyncio.CancelledError):
             await sender
+        await require_session_manager().disconnect(session)
 
 
-async def _send_updates(websocket: WebSocket, signals: StateSignal) -> None:
-    """Send the latest state whenever the game service signals a change."""
+async def _send_updates(
+    websocket: WebSocket,
+    signals: StateSignal,
+    session: GameSession,
+) -> None:
+    """Send state changes from only the owning game session."""
 
     while True:
         await signals.get()
-        await websocket.send_json(state_response().model_dump(mode="json"))
+        await websocket.send_json(state_response(session).model_dump(mode="json"))
+        require_session_manager().touch(session)
 
 
-async def _apply_socket_input(websocket: WebSocket, message: Any) -> bool:
-    """Validate and apply one WebSocket direction message."""
+async def _apply_socket_input(
+    websocket: WebSocket,
+    message: Any,
+    session: GameSession,
+) -> bool:
+    """Validate and apply one direction request to the owning game."""
 
     if not isinstance(message, dict) or not isinstance(message.get("direction"), str):
         await websocket.close(code=1008, reason="A direction message is required")
@@ -153,5 +212,6 @@ async def _apply_socket_input(websocket: WebSocket, message: Any) -> bool:
         await websocket.close(code=1008, reason="Unknown direction")
         return False
 
-    await game_service.turn(direction)
+    await session.game_service.turn(direction)
+    require_session_manager().touch(session)
     return True

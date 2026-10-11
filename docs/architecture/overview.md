@@ -8,11 +8,18 @@ server or database.
 ```mermaid
 flowchart LR
     Input[Keyboard / touch] --> Browser[TypeScript Canvas client]
-    Browser -->|REST / WebSocket| API[FastAPI adapters]
-    API --> Loop[GameLoopService]
-    Loop --> Engine[GameEngine]
-    Engine --> Domain[Snake, Board, Rules]
-    API --> Persistence[SQLite repositories]
+    Browser -->|POST /session| Cookie[HttpOnly session cookie]
+    Browser -->|REST / WebSocket + cookie| API[FastAPI adapters]
+    API --> Manager[GameSessionManager]
+    Manager --> SessionA[Browser game session A]
+    Manager --> SessionB[Browser game session B]
+    SessionA --> LoopA[GameLoopService]
+    SessionB --> LoopB[GameLoopService]
+    LoopA --> EngineA[GameEngine]
+    LoopB --> EngineB[GameEngine]
+    EngineA --> Domain[Snake, Board, Rules]
+    EngineB --> Domain
+    Manager --> Persistence[SQLite repositories]
     Persistence --> Schema[(players / games / scores)]
 ```
 
@@ -30,16 +37,27 @@ flowchart LR
 
 ## State flow
 
-1. The browser opens `/ws/game` and receives the current authoritative state.
-2. Keyboard or direction-pad input sends a direction intention.
-3. FastAPI starts one `GameLoopService` task for the application lifecycle.
-4. The service advances the engine at a fixed interval and signals observers.
-5. WebSocket adapters broadcast the latest complete state snapshot.
-6. Canvas redraws only from the returned snapshot.
+1. The browser calls `POST /session`; FastAPI issues a random credential in an
+   `HttpOnly`, `SameSite=Strict` cookie and never returns it in JSON.
+2. The browser opens `/ws/game`; the cookie selects one server-owned session.
+3. Keyboard or direction-pad input sends a direction intention over that socket.
+4. Each session owns one `GameLoopService`, engine, and persistence lifecycle.
+5. The service advances only its own engine and notifies only its own observers.
+6. Canvas redraws only from the current session's authoritative snapshots.
 
 The browser never calculates collisions, scores, growth, or food placement.
 Update queues hold at most one signal, so a slow observer receives the latest
-state without accumulating stale frames or affecting the game speed.
+state without accumulating stale frames or affecting the game speed. REST
+routes use the same cookie ownership boundary; session IDs in JSON or query
+parameters are ignored.
+
+Sessions are anonymous bearer-cookie sessions, not authenticated user
+accounts. A copied complete cookie can be replayed by another client until
+expiry; protecting against full-cookie theft requires account authentication.
+Sessions are held in process memory and expire after 12 hours without activity.
+The manager permits at most 500 concurrent sessions.
+Until state moves to a shared session store, deploy one backend process/instance;
+multiple workers would have different session registries and game loops.
 
 For post-game replay, the browser records those authoritative snapshots against
 active-play time. Paused time is excluded, and playback renders the recording at
@@ -79,8 +97,8 @@ five as each group of three is eaten, up to a fixed quota of 15. Accelerating
 growth is also authoritative: extra tail cells are stored as pending growth and
 released over later ticks, avoiding duplicate body coordinates.
 
-The game loop sleeps on a separate, shorter idle interval when no game is
-running, so a slow difficulty does not delay demo-mode detection.
+Each game loop sleeps on a separate, shorter idle interval when its game is
+not running, so a slow difficulty does not delay demo-mode detection.
 
 ## Player identity and winner persistence
 
@@ -89,6 +107,13 @@ and sends it only when starting a game. Pydantic independently validates the
 same boundary. Persistence resolves the name with bound SQLite parameters and
 associates that player with the new game; the configured `PLAYER_NAME` remains
 the fallback for clients that omit it.
+
+`GameSessionManager` creates an independent `GameLoopService` and
+`PersistenceService` for each browser cookie. The 256-bit random cookie is
+`HttpOnly`, `SameSite=Strict`, `Secure` on non-local hosts, and is not exposed in
+application JSON, to page JavaScript, in URLs, or in request bodies. DevTools
+can still inspect or copy the cookie. This blocks ID-only session substitution;
+it does not prevent someone from replaying a complete stolen cookie.
 
 Completed games persist their authoritative final level and victory flag. The
 public leaderboard joins scores back to games and admits only level-10 wins,

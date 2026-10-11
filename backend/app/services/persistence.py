@@ -10,9 +10,16 @@ from backend.app.repositories.database import Database
 class PersistenceService:
     """Persist the current player, game lifecycle, and completed scores."""
 
-    def __init__(self, database: Database, player_name: str) -> None:
+    def __init__(
+        self,
+        database: Database,
+        player_name: str,
+        *,
+        initialize_database: bool = True,
+    ) -> None:
         self._database = database
         self._player_name = player_name
+        self._initialize_database = initialize_database
         self._player_id: int | None = None
         self._current_game_id: int | None = None
 
@@ -20,7 +27,8 @@ class PersistenceService:
         """Open storage, create tables, and load the local player."""
 
         await self._database.connect()
-        await self._database.initialize()
+        if self._initialize_database:
+            await self._database.initialize()
         self._player_id = await self._resolve_player(self._player_name)
 
     async def start_game(self, player_name: str | None = None) -> int:
@@ -66,6 +74,21 @@ class PersistenceService:
             VALUES (?, ?, ?)
             """,
             (game_id, player_id, state.score),
+        )
+        self._current_game_id = None
+
+    async def abandon_game(self) -> None:
+        """Close an unfinished game without recording it as a completed score."""
+
+        if self._current_game_id is None:
+            return
+        await self._database.execute(
+            """
+            UPDATE games
+            SET status = 'completed', ended_at = ?, score = 0, game_won = 0
+            WHERE id = ? AND status = 'active'
+            """,
+            (self._now(), self._current_game_id),
         )
         self._current_game_id = None
 

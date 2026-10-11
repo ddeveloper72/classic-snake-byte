@@ -223,6 +223,7 @@ FastAPI publishes interactive OpenAPI documentation at
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Process readiness check |
+| `POST` | `/session` | Establish an anonymous browser session using an HttpOnly cookie |
 | `POST` | `/game/start` | Start a player game with name, speed, and plum settings |
 | `GET` | `/game/state` | Read the latest authoritative snapshot |
 | `POST` | `/game/input` | Submit a cardinal direction |
@@ -238,6 +239,26 @@ Clicking the PLAYER value turns that value into an inline, cabinet-styled text
 field. Enter saves, Escape cancels, and leaving the field saves. Names are
 normalized and limited to 24 characters in both the browser and API. The browser
 stores the preference in `localStorage` and sends it with each new-game request.
+
+Each browser profile receives its own independent game state. Before opening
+the game WebSocket, the client calls `POST /session`; the server creates a
+cryptographically random credential and sets it in an `HttpOnly`, `SameSite`
+`Strict` cookie. The credential is stored in that cookie, not returned in JSON,
+put in a URL, or exposed to page JavaScript. DevTools can still inspect or copy
+the cookie.
+Game HTTP routes and the WebSocket resolve the game only from that cookie, so
+adding or swapping a session ID in request data does not select another
+player's game. The cookie is `Secure` on non-local hosts; inactive server
+sessions expire after 12 hours and are cleaned up.
+The in-memory session manager caps the process at 500 sessions.
+
+These are anonymous sessions, not verified identities: anyone who obtains and
+copies a complete session cookie can impersonate that browser until it expires.
+Account authentication is required to defend against theft of the full cookie.
+Sessions live in server memory, so a process restart clears active games; run a
+single backend worker/instance until session state is moved to shared storage.
+Separate browser profiles/devices get separate games; tabs in one profile share
+the same session.
 
 The winners table contains at most ten entries, ordered by score descending and
 then completion time. A score qualifies only when the authoritative final state
@@ -284,6 +305,13 @@ limits, and SQL-injection regression payloads.
   into SQL text.
 - Player-name payloads containing SQL punctuation are stored as literal data.
 - API validation rejects empty, overlong, and control-character names.
+- Every browser has a separate server-side game session, selected by a
+  cryptographically random `HttpOnly`, `SameSite=Strict` cookie; session tokens
+  are not returned in API response bodies or accepted from request payloads.
+  The cookie can still be copied through browser DevTools.
+- Anonymous cookies are bearer credentials: copying the full cookie can
+  impersonate its browser. Account authentication is needed for stronger
+  identity assurance.
 - Browser names and winner entries are rendered with `textContent`, not
   `innerHTML`, preventing markup execution.
 - Game movement, scores, level completion, and winner qualification remain

@@ -11,39 +11,31 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend.app.api.routes import (
-    configure_persistence,
-    game_service,
+    configure_sessions,
     router,
 )
 from backend.app.config import Settings
-from backend.app.domain.game import GameState
 from backend.app.repositories.database import Database
-from backend.app.services.persistence import PersistenceService
+from backend.app.services.sessions import GameSessionManager
 
 settings = Settings()
 database = Database(settings.sqlite_path)
-persistence_service = PersistenceService(database, settings.player_name)
-configure_persistence(persistence_service)
-
-
-async def persist_game_over(state: GameState) -> None:
-    await persistence_service.complete_game(state)
-
-
-game_service.set_game_over_handler(persist_game_over)
+session_manager = GameSessionManager(database, settings.player_name)
+configure_sessions(session_manager)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Start and stop the autonomous game loop with the web application."""
+    """Initialize shared storage and manage per-browser game sessions."""
 
-    await persistence_service.initialize()
-    await game_service.start_loop()
+    await database.connect()
+    await database.initialize()
+    await session_manager.start()
     try:
         yield
     finally:
-        await game_service.stop_loop()
-        await persistence_service.close()
+        await session_manager.stop()
+        await database.close()
 
 
 app = FastAPI(title="Snakebite", version="0.1.0", lifespan=lifespan)

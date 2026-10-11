@@ -7,6 +7,7 @@ from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app.services.sessions import SESSION_COOKIE_NAME
 
 
 @pytest.fixture
@@ -14,7 +15,106 @@ def client() -> Iterator[TestClient]:
     """Run each test with the FastAPI lifespan and game loop active."""
 
     with TestClient(app) as test_client:
+        test_client.post("/session")
         yield test_client
+
+
+def test_browser_session_cookie_is_http_only_and_not_returned_to_javascript(
+    client: TestClient,
+) -> None:
+    response = client.post("/session")
+    cookie = response.headers["set-cookie"].lower()
+
+    assert response.status_code == 200
+    assert response.json() == {"ready": True}
+    assert "httponly" in cookie
+    assert "samesite=strict" in cookie
+    assert SESSION_COOKIE_NAME in cookie
+    assert client.cookies.get(SESSION_COOKIE_NAME) not in response.text
+
+
+def test_game_state_is_isolated_from_other_browser_sessions(
+    client: TestClient,
+) -> None:
+    session_a = client.cookies.get(SESSION_COOKIE_NAME)
+    client.post(
+        "/game/start",
+        json={"difficulty": 5, "player_name": "Player A"},
+    )
+    paused_a = client.post("/game/pause").json()
+
+    client.cookies.clear()
+    client.post("/session")
+    session_b = client.cookies.get(SESSION_COOKIE_NAME)
+    assert session_a is not None
+    assert session_b is not None
+    assert session_a != session_b
+
+    client.post(
+        "/game/start",
+        json={
+            "difficulty": 2,
+            "player_name": "Player B",
+            "session_id": session_a,
+        },
+    )
+    paused_b = client.post("/game/pause").json()
+
+    state_b = client.get("/game/state").json()
+    assert state_b["difficulty"] == 2
+    assert state_b["paused"] is True
+    assert state_b["snake"] == paused_b["snake"]
+    assert (
+        client.get("/game/state", params={"session_id": session_a}).json()
+        == state_b
+    )
+
+    client.cookies.set(SESSION_COOKIE_NAME, session_a)
+    state_a = client.get("/game/state").json()
+    assert state_a["difficulty"] == 5
+    assert state_a["paused"] is True
+    assert state_a["snake"] == paused_a["snake"]
+
+    client.post("/game/input", json={"direction": "down"})
+    client.cookies.set(SESSION_COOKIE_NAME, session_b)
+    assert client.get("/game/state").json()["direction"] == "right"
+
+
+def test_websocket_input_only_changes_its_cookie_owned_game(
+    client: TestClient,
+) -> None:
+    session_a = client.cookies.get(SESSION_COOKIE_NAME)
+    client.post("/game/start")
+    client.post("/game/pause")
+
+    client.cookies.clear()
+    client.post("/session")
+    session_b = client.cookies.get(SESSION_COOKIE_NAME)
+    assert session_b is not None
+    assert session_b != session_a
+    client.post("/game/start")
+    client.post("/game/pause")
+
+    with client.websocket_connect("/ws/game") as websocket:
+        websocket.receive_json()
+        websocket.send_json({"direction": "down"})
+        changed_b = websocket.receive_json()
+
+    assert changed_b["direction"] == "down"
+
+    assert session_a is not None
+    client.cookies.set(SESSION_COOKIE_NAME, session_a)
+    assert client.get("/game/state").json()["direction"] == "right"
+
+
+def test_websocket_requires_a_valid_browser_session(client: TestClient) -> None:
+    client.cookies.clear()
+
+    with pytest.raises(WebSocketDisconnect) as disconnect:
+        with client.websocket_connect("/ws/game"):
+            pass
+
+    assert disconnect.value.code == 4401
 
 
 def test_health_endpoint(client: TestClient) -> None:

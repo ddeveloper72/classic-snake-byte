@@ -322,6 +322,7 @@ const leaderboardList = requireElement<HTMLOListElement>('#leaderboard-list')
 
 const sounds = new SoundBoard()
 
+startButton.disabled = true
 let socket: WebSocket | null = null
 let state: GameState | null = null
 let reconnectTimer: number | null = null
@@ -340,6 +341,7 @@ let sequenceToken = 0
 let trophyTimer: number | null = null
 let editingPlayerName = false
 let activeGamePlayerName = 'PLAYER'
+let sessionBootstrap: Promise<void> | null = null
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -387,15 +389,42 @@ function connect(): void {
     }
   })
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (event: CloseEvent) => {
     setConnectionStatus('disconnected', 'Server disconnected — retrying')
     showOverlay('CONNECTION LOST', 'Waiting for the game server...')
-    reconnectTimer = window.setTimeout(connect, 1500)
+    reconnectTimer = window.setTimeout(() => {
+      if (event.code === 4401) {
+        void establishBrowserSession().catch(showClientError)
+      } else {
+        connect()
+      }
+    }, 1500)
   })
 
   socket.addEventListener('error', () => {
     setConnectionStatus('disconnected', 'Unable to reach game server')
   })
+}
+
+async function establishBrowserSession(): Promise<void> {
+  if (sessionBootstrap !== null) {
+    return sessionBootstrap
+  }
+
+  sessionBootstrap = (async () => {
+    const response = await fetch('/session', { method: 'POST' })
+    if (!response.ok) {
+      throw new Error(`Unable to establish browser session: HTTP ${response.status}`)
+    }
+    startButton.disabled = false
+    connect()
+  })()
+
+  try {
+    await sessionBootstrap
+  } finally {
+    sessionBootstrap = null
+  }
 }
 
 function isGameState(value: unknown): value is GameState {
@@ -1385,4 +1414,4 @@ window.addEventListener('beforeunload', () => {
   socket?.close()
 })
 
-connect()
+void establishBrowserSession().catch(showClientError)
