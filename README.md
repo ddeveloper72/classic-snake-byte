@@ -18,6 +18,16 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 - Pytest and Ruff development tooling
 - Architecture and learning notes in `docs/`
 
+## Screenshots
+
+The demo screenshot shows the autonomous attract mode navigating the level-10
+room maze. The controls panel shows the selectable snake speeds, perilous plums,
+keyboard layouts, and winners leaderboard.
+
+![Snakebite attract-mode gameplay on the level-10 room maze](docs/demo-mode.png)
+
+![Snakebite game speed, plum, steering, and leaderboard controls](docs/game-controls.png)
+
 ## Choosing a speed
 
 Snakebite is meant to stay playable at any reaction speed, so the pace is an
