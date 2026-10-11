@@ -1,16 +1,18 @@
  # Snakebite Reimagined
 
-The first vertical slice of a modern Apple IIe-inspired Snakebite game:
+The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 
 - Python 3.15 and FastAPI backend
 - Framework-independent, typed game engine
 - REST endpoints and a server-authoritative WebSocket
+- TypeScript, Vite, and Canvas browser client
+- Keyboard and touch-friendly controls
 - Pytest and Ruff development tooling
 - Architecture and learning notes in `docs/`
 
 ## Run locally
 
-Create the requested project virtual environment:
+Create the Python virtual environment and install the backend:
 
 ```powershell
 py -3.15 -m venv .venv
@@ -20,17 +22,31 @@ python -m pip install -e ".[dev]"
 python -m uvicorn backend.app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` for the generated API documentation.
+In a second terminal, install and run the frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` to play. The Vite development server proxies game
+HTTP and WebSocket traffic to FastAPI, so the browser does not need a separate
+CORS configuration.
+
+Open `http://127.0.0.1:8000/docs` for generated API documentation.
 
 Run checks:
 
 ```powershell
 python -m pytest
 python -m ruff check .
+cd frontend
+npm run build
 ```
 
-The frontend Canvas client, SQLite repositories, score persistence, and
-difficulty progression are intentionally subsequent vertical slices. See
+SQLite repositories, score persistence, an autonomous server game loop, and
+difficulty progression are subsequent vertical slices. See
 [`docs/architecture/overview.md`](docs/architecture/overview.md).
 Project Goal
 
