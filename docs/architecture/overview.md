@@ -1,6 +1,6 @@
-# Snakebite architecture
+# Snake Byte architecture
 
-Snakebite starts as a **modular monolith**: one deployable FastAPI application
+Snake Byte starts as a **modular monolith**: one deployable FastAPI application
 with strict boundaries between the domain and adapters. This keeps the learning
 project easy to run while allowing the game engine to be tested without an HTTP
 server or database.

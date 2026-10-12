@@ -2,7 +2,7 @@
 
 ## Context
 
-Snakebite needs responsive grid rendering, keyboard and touch input, and a
+Snake Byte needs responsive grid rendering, keyboard and touch input, and a
 low-latency connection to the authoritative backend. The project also aims to
 teach the underlying browser APIs.
 
@@ -16,7 +16,7 @@ renders state received from FastAPI and sends only player intentions.
 - DOM elements for every cell: simple initially, but creates unnecessary
   layout work and spreads rendering across many elements.
 - A game framework: useful for physics and scenes, but excessive for a fixed
-  Snakebite grid and less transparent for learners.
+  Snake Byte grid and less transparent for learners.
 - Client-authoritative rules: responsive, but duplicates the Python engine and
   makes cheating or divergent states more likely.
 

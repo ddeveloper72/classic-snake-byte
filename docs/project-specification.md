@@ -1,8 +1,8 @@
-# Project Specification: Snakebite Reimagined
+# Project Specification: Snake Byte Reimagined
 
 ## Project Goal
 
-Recreate the classic Apple IIe game "Snakebite" using modern software engineering practices while preserving the original gameplay experience.
+Recreate the classic Apple IIe game "Snake Byte" using modern software engineering practices while preserving the original gameplay experience.
 
 The project serves two purposes:
 
@@ -15,7 +15,7 @@ The project serves two purposes:
 
 The game should feel like:
 
-- Apple IIe Snakebite
+- Apple IIe Snake Byte
 - Fast
 - Responsive
 - Retro-inspired
@@ -42,7 +42,7 @@ Every significant implementation should include learning notes explaining why an
 
 Study:
 
-- Original Apple IIe Snakebite
+- Original Apple IIe Snake Byte
 - Gameplay mechanics
 - Scoring
 - Controls

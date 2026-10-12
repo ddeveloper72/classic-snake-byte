@@ -1,8 +1,8 @@
 /**
- * Browser adapter for the server-authoritative Snakebite engine.
+ * Browser adapter for the server-authoritative Snake Byte engine.
  *
  * Learning note:
- * Canvas is used instead of a game framework because Snakebite needs only a
+ * Canvas is used instead of a game framework because Snake Byte needs only a
  * small grid renderer. The backend remains authoritative: the browser sends
  * player intentions, then renders only state broadcast by the server.
  */
@@ -69,7 +69,7 @@ const DIFFICULTIES: readonly { value: number; label: string; hint: string }[] = 
   { value: 2, label: 'EASY', hint: 'Relaxed pace with room to recover' },
   { value: 3, label: 'STEADY', hint: 'A balanced, classic arcade pace' },
   { value: 4, label: 'BRISK', hint: 'Quick reactions needed' },
-  { value: 5, label: 'SNAKEBITE', hint: 'Full 1981 arcade speed' },
+  { value: 5, label: 'SNAKE BYTE', hint: 'Full 1981 arcade speed' },
 ]
 
 const DEFAULT_DIFFICULTY = 1
@@ -152,7 +152,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <header class="masthead">
       <div class="brand">
         <p class="eyebrow">Apple IIe spirit. Modern Python engine.</p>
-        <h1>SNAKEBITE</h1>
+        <h1>SNAKE BYTE</h1>
       </div>
       <div class="score-panel" aria-live="polite">
         <div class="score-box">
@@ -187,12 +187,12 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       </div>
     </header>
 
-    <section class="game-frame" id="game-frame" aria-label="Snakebite game">
+    <section class="game-frame" id="game-frame" aria-label="Snake Byte game">
       <canvas
         id="game"
         width="${CANVAS_WIDTH}"
         height="${CANVAS_HEIGHT}"
-        aria-label="Snakebite game board"
+        aria-label="Snake Byte game board"
       ></canvas>
       <div id="overlay" class="overlay">
         <span id="trophy-icon" class="trophy-icon" aria-hidden="true" hidden>🏆</span>

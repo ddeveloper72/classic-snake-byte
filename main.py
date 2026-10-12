@@ -1,4 +1,4 @@
-"""Run the Snakebite development server."""
+"""Run the Snake Byte development server."""
 
 import uvicorn
 

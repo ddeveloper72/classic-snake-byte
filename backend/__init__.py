@@ -1,1 +1,1 @@
-"""Snakebite backend package."""
+"""Snake Byte backend package."""

@@ -38,7 +38,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await database.close()
 
 
-app = FastAPI(title="Snakebite", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Snake Byte", version="0.1.0", lifespan=lifespan)
 app.include_router(router)
 
 

@@ -1,4 +1,4 @@
-"""Executable examples of the core Snakebite movement rules.
+"""Executable examples of the core Snake Byte movement rules.
 
 Fixed random seeds keep food placement deterministic so failures describe game
 logic changes rather than random test data.

@@ -1,4 +1,4 @@
-"""Framework-independent rules and state for a game of Snakebite.
+"""Framework-independent rules and state for a game of Snake Byte.
 
 The domain module deliberately imports neither FastAPI nor Pydantic. Keeping the
 rules independent from delivery and persistence concerns means the same engine
@@ -336,7 +336,7 @@ class GameState:
 
 
 class GameEngine:
-    """Advance and control server-authoritative Snakebite game state.
+    """Advance and control server-authoritative Snake Byte game state.
 
     Args:
         board: Optional board dimensions, useful for alternate modes and tests.

@@ -1,7 +1,7 @@
 [project]
-name = "snakebite"
+name = "snake-byte"
 version = "0.1.0"
-description = "A modern, retro-inspired Snakebite game."
+description = "A modern, retro-inspired browser recreation of Snake Byte."
 readme = "README.md"
 requires-python = ">=3.15"
 dependencies = [

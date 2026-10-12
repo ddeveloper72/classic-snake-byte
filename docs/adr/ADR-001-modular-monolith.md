@@ -2,7 +2,7 @@
 
 ## Context
 
-Snakebite is both a playable game and a learning project. The first milestone
+Snake Byte is both a playable game and a learning project. The first milestone
 needs fast feedback and a small operational footprint.
 
 ## Decision

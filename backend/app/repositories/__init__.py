@@ -1,1 +1,1 @@
-"""Persistence adapters for Snakebite."""
+"""Persistence adapters for Snake Byte."""

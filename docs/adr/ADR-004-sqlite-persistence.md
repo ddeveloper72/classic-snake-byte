@@ -2,7 +2,7 @@
 
 ## Context
 
-Snakebite needs durable players, games, and scores, but the current project is
+Snake Byte needs durable players, games, and scores, but the current project is
 a single-user local development application. Introducing a hosted database now
 would add credentials and infrastructure before the data model is stable.
 

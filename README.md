@@ -1,6 +1,6 @@
-# Snakebite Reimagined
+# Snake Byte Reimagined
 
-The first playable browser build of a modern Apple IIe-inspired Snakebite game:
+The first playable browser build of a modern Apple IIe-inspired Snake Byte game:
 
 - Python 3.15 and FastAPI backend
 - Framework-independent, typed game engine
@@ -20,17 +20,17 @@ The first playable browser build of a modern Apple IIe-inspired Snakebite game:
 
 ## Screenshots
 
-The demo screenshot shows the autonomous attract mode navigating the level-10
-room maze. The controls panel shows the selectable snake speeds, perilous plums,
-keyboard layouts, and winners leaderboard.
+The demo screenshot shows the autonomous attract mode navigating a maze. The
+controls panel shows the selectable snake speeds, perilous plums, keyboard
+layouts, and winners leaderboard.
 
-![Snakebite attract-mode gameplay on the level-10 room maze](docs/demo-mode.png)
+![Snake Byte attract-mode gameplay on the level-10 room maze](docs/demo-mode.png)
 
-![Snakebite game speed, plum, steering, and leaderboard controls](docs/game-controls.png)
+![Snake Byte game speed, plum, steering, and leaderboard controls](docs/game-controls.png)
 
 ## Choosing a speed
 
-Snakebite is meant to stay playable at any reaction speed, so the pace is an
+Snake Byte is meant to stay playable at any reaction speed, so the pace is an
 explicit setting rather than a hidden constant. Pick a level before starting a
 new game:
 
@@ -40,7 +40,7 @@ new game:
 | 2 | EASY | 0.32 |
 | 3 | STEADY | 0.25 |
 | 4 | BRISK | 0.19 |
-| 5 | SNAKEBITE | 0.13 |
+| 5 | SNAKE BYTE | 0.13 |
 
 Each in-game level speeds the snake by 6 percent, but the pace never drops
 below 60 percent of the chosen starting interval from level progression alone.
@@ -184,7 +184,7 @@ CORS configuration.
 
 ## Architecture
 
-Snakebite is a modular monolith with a strict server-authoritative boundary:
+Snake Byte is a modular monolith with a strict server-authoritative boundary:
 
 ```mermaid
 flowchart LR
@@ -249,6 +249,8 @@ Clicking the PLAYER value turns that value into an inline, cabinet-styled text
 field. Enter saves, Escape cancels, and leaving the field saves. Names are
 normalized and limited to 24 characters in both the browser and API. The browser
 stores the preference in `localStorage` and sends it with each new-game request.
+The historical `snakebite` database filename and browser preference keys remain
+unchanged so an existing local install keeps its scores and settings.
 
 Each browser profile receives its own independent game state. Before opening
 the game WebSocket, the client calls `POST /session`; the server creates a
